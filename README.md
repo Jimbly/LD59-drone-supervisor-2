@@ -14,9 +14,6 @@ Start with: `npm start` (after running `npm i` once)
 
 TODO
 ====
-* update tickables when editing during playback
-  * nuke resources / sim_entry as well
-  * immediately spawn a new drone as well
 * fade day in/out and show money gained
   * button and hotkey to reset the day immediately (try doing this upon every placement near an actor?)
 * accumulate money on base, don't do floaters in the same way as buy/sell?

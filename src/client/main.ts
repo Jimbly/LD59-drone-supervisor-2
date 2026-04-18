@@ -11,6 +11,7 @@ import * as engine from 'glov/client/engine';
 import { ALIGN, Font, fontStyle, fontStyleColored } from 'glov/client/font';
 import {
   drag,
+  keyDown,
   KEYS,
   mousePos,
   mouseUpEdge,
@@ -176,6 +177,8 @@ type MapEntry = {
 };
 
 type Drone = {
+  orig_x: number;
+  orig_y: number;
   last_x: number;
   last_y: number;
   x: number;
@@ -356,51 +359,86 @@ class SimState {
     }
 
     this.drones = [];
-    let drones = this.drones;
     this.tickables = [];
-    let tickables = this.tickables;
 
     for (let jj = 0; jj < h; ++jj) {
       let row = map[jj];
       for (let ii = 0; ii < w; ++ii) {
         let cell = row[ii];
-        if (!cell) {
+        if (!cell || cell.nodraw) {
           continue;
         }
-        if (cell.type === 'spawner') {
-          let drone: Drone = {
-            last_x: ii,
-            last_y: jj,
-            x: ii,
-            y: jj,
-            last_rot: cell.rot || 0,
-            rot: cell.rot || 0,
-            contents: null,
-            last_contents: null,
-            tick_id: 0,
-            thinking: false,
-            stopped: false,
-            uid: ++this.last_uid,
-          };
-          drones.push(drone);
-          this.drone_map[jj][ii] = drone;
-        } else if (cell.type === 'base' || cell.type === 'resource' ||
-          cell.type === 'storage' || cell.type === 'craft'
-        ) {
-          let tickable: SimMapEntry = {
-            x: ii,
-            y: jj,
-            cell,
-            contents: null,
-            multi_contents: [],
-            quantity: 3, // only used if resource
-          };
-          tickables.push(tickable);
-          this.sim_map[jj][ii] = tickable;
-        }
+        this.insertFromCell(cell, ii, jj);
       }
     }
-    tickables.sort(cmpTickable);
+    this.tickables.sort(cmpTickable);
+  }
+
+  insertFromCell(cell: MapEntry, x: number, y: number): void {
+    if (cell.type === 'spawner') {
+      if (this.drone_map[y][x]) {
+        // presumably only from live edits
+        return;
+      }
+      let drone: Drone = {
+        orig_x: x,
+        orig_y: y,
+        last_x: x,
+        last_y: y,
+        x,
+        y,
+        last_rot: cell.rot || 0,
+        rot: cell.rot || 0,
+        contents: null,
+        last_contents: null,
+        tick_id: 0,
+        thinking: false,
+        stopped: false,
+        uid: ++this.last_uid,
+      };
+      this.drones.push(drone);
+      this.drone_map[y][x] = drone;
+    } else if (cell.type === 'base' || cell.type === 'resource' ||
+      cell.type === 'storage' || cell.type === 'craft'
+    ) {
+      let tickable: SimMapEntry = {
+        x,
+        y,
+        cell,
+        contents: null,
+        multi_contents: [],
+        quantity: 3, // only used if resource
+      };
+      this.tickables.push(tickable);
+      this.sim_map[y][x] = tickable;
+    }
+  }
+
+  updateMapEdit(x: number, y: number): void {
+    let { tickables, drones, sim_map } = this;
+    for (let ii = 0; ii < tickables.length; ++ii) {
+      let elem = tickables[ii];
+      if (elem.x === x && elem.y === y) {
+        tickables.splice(ii, 1);
+        sim_map[y][x] = undefined;
+        break;
+      }
+    }
+    for (let ii = 0; ii < drones.length; ++ii) {
+      let drone = drones[ii];
+      if (drone.orig_x === x && drone.orig_y === y) {
+        drones.splice(ii, 1);
+        assert.equal(this.drone_map[drone.y][drone.x], drone);
+        this.drone_map[drone.y][drone.x] = undefined;
+      }
+    }
+
+    let cell = this.parent.map[y][x];
+    if (!cell || cell.nodraw) {
+      return;
+    }
+    this.insertFromCell(cell, x, y);
+    this.tickables.sort(cmpTickable);
   }
 
   getDrone(x: number, y: number): Drone | null {
@@ -835,48 +873,33 @@ class GameState {
     });
 
     if (engine.DEBUG) {
-      this.map[0][0] = {
+      this.map[10][0] = {
         type: 'spawner',
-        rot: 1,
+        rot: 0,
       };
-      this.map[0][4] = {
+      this.map[7][5] = {
         type: 'spawner',
         rot: 3,
       };
-      this.map[0][1] = {
-        type: 'rotate',
+      this.map[5][1] = {
+        type: 'craft',
         rot: 0,
       };
-      this.map[0][3] = {
-        type: 'rotate',
-        rot: 1,
+      this.map[5][2] = {
+        type: 'craft',
+        rot: 0,
+        nodraw: true,
       };
-      if (0) {
-        this.map[2][3] = {
-          type: 'storage',
-          rot: 0,
-        };
-        this.map[3][3] = {
-          type: 'storage',
-          rot: 0,
-        };
-      } else {
-        this.map[3][2] = {
-          type: 'craft',
-          rot: 2,
-        };
-        this.map[3][3] = {
-          type: 'craft',
-          nodraw: true,
-          rot: 2,
-        };
-        this.map[1][3] = {
-          type: 'signal-stop',
-        };
-        this.map[2][1] = {
-          type: 'signal-go',
-        };
-      }
+      this.map[6][1] = {
+        type: 'craft',
+        rot: 0,
+        nodraw: true,
+      };
+      this.map[6][2] = {
+        type: 'craft',
+        rot: 0,
+        nodraw: true,
+      };
     }
 
     this.resetDay();
@@ -955,6 +978,7 @@ class GameState {
           }
         }
         dmoney = this.costOf(old_type, 1);
+        this.sim_state.updateMapEdit(x, y);
         // sound_manager.play('drone/sell');
       }
     } else {
@@ -962,7 +986,9 @@ class GameState {
         // just rotate
         tile.rot = ((tile.rot || 0) + 1) % (MAX_ROT[tile.type] || 1);
         // sound_manager.play('drone/place_rotate');
+        this.sim_state.updateMapEdit(x, y);
       } else {
+        assert(!tile);
         dmoney = -this.costOf(tile_type, 1);
         if (-dmoney > this.money) {
           // sound_manager.play('drone/place_error');
@@ -981,6 +1007,7 @@ class GameState {
               };
             }
           }
+          this.sim_state.updateMapEdit(x, y);
         }
       }
     }
@@ -1287,6 +1314,9 @@ let counter = 0;
 const TICK_TIME = 1000;
 function statePlay(dt: number): void {
 
+  if (keyDown(KEYS.SHIFT)) {
+    dt *= 5;
+  }
   counter += dt;
   if (counter >= TICK_TIME) {
     counter -= TICK_TIME;
@@ -1550,7 +1580,7 @@ function statePlay(dt: number): void {
 function playInit(): void {
   engine.setState(statePlay);
   counter = 0;
-  selected_tool = engine.DEBUG ? 6 : -1;
+  selected_tool = engine.DEBUG ? 0 : -1;
   selected_rot = 0;
   game_state = new GameState(engine.DEBUG ? 1 : 0);
 }
