@@ -14,8 +14,10 @@ Start with: `npm start` (after running `npm i` once)
 
 TODO
 ====
-* resource limits
+* signals
 * fade day in/out and show money gained
+  * button and hotkey to reset the day immediately (try doing this upon every placement near an actor?)
+* fade out / to black trashed items
 * accumulate money on base, don't do floaters in the same way as buy/sell?
 
 Plan - Drone Supervisor II Online!

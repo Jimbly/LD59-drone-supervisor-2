@@ -772,9 +772,17 @@ class GameState {
         type: 'spawner',
         rot: 1,
       };
+      this.map[0][4] = {
+        type: 'spawner',
+        rot: 3,
+      };
       this.map[0][1] = {
         type: 'rotate',
         rot: 0,
+      };
+      this.map[0][3] = {
+        type: 'rotate',
+        rot: 1,
       };
       if (0) {
         this.map[2][3] = {
@@ -786,13 +794,20 @@ class GameState {
           rot: 0,
         };
       } else {
-        this.map[1][2] = {
+        this.map[3][2] = {
           type: 'craft',
           rot: 2,
         };
-        this.map[3][2] = {
+        this.map[3][3] = {
           type: 'craft',
-          rot: 1,
+          nodraw: true,
+          rot: 2,
+        };
+        this.map[1][3] = {
+          type: 'signal-stop',
+        };
+        this.map[2][1] = {
+          type: 'signal-go',
         };
       }
     }
@@ -1205,6 +1220,17 @@ function statePlay(dt: number): void {
     return null;
   }
 
+  function isTransferFrom(x: number, y: number): boolean {
+    for (let ii = 0; ii < transfers.length; ++ii) {
+      let elem = transfers[ii];
+      if (elem[0] === 'spawn' && elem[2] === x && elem[3] === y) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // draw map
   for (let yy = 0; yy < h; ++yy) {
     let row = map[yy];
     let sim_row = sim_map[yy];
@@ -1228,8 +1254,16 @@ function statePlay(dt: number): void {
       let zz = z;
 
       let frame = cellFrame(tile.type, tile.rot!);
+      let sim_tile = sim_row[xx];
       if (tile.type === 'resource') {
         frame = `spawn-${tile.resource!}`;
+        if (sim_tile && !sim_tile.quantity) {
+          if (t < 0.5 && isTransferFrom(xx, yy)) {
+            // leave alone
+          } else {
+            color = [palette[PAL_BLACK][0], palette[PAL_BLACK][1], palette[PAL_BLACK][2], 0.5];
+          }
+        }
       } else if (tile.type === 'spawner') {
         color = color_spawner;
         zz -= 0.1;
@@ -1243,7 +1277,6 @@ function statePlay(dt: number): void {
         color,
       });
 
-      let sim_tile = sim_row[xx];
       if (sim_tile) {
         if (sim_tile.contents) {
           if (isTransferTo(xx, yy)) {
