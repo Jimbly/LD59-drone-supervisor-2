@@ -3,10 +3,17 @@
 const local_storage = require('glov/client/local_storage');
 local_storage.setStoragePrefix('ld59'); // Before requiring anything else that might load from this
 
+// Virtual viewport for our game logic
+export const game_width = 384;
+export const game_height = 256;
+export const TILE_SIZE = 15;
+export const FONT_HEIGHT = 8;
+export const BUTTON_HEIGHT = TILE_SIZE + 4;
+
 import assert from 'assert';
 import { autoAtlas } from 'glov/client/autoatlas';
 import * as camera2d from 'glov/client/camera2d';
-import { platformParameterGet } from 'glov/client/client_config';
+import { cmd_parse } from 'glov/client/cmds';
 import * as engine from 'glov/client/engine';
 import { ALIGN, Font, FontStyle, fontStyle, fontStyleColored } from 'glov/client/font';
 import {
@@ -16,7 +23,8 @@ import {
   mousePos,
   mouseUpEdge,
 } from 'glov/client/input';
-import { netInit } from 'glov/client/net';
+import { ClientChannelWorker, netInit } from 'glov/client/net';
+import { socialInit } from 'glov/client/social';
 import { spriteSetGet } from 'glov/client/sprite_sets';
 import { BLEND_ADDITIVE } from 'glov/client/sprites';
 import {
@@ -33,9 +41,11 @@ import {
   uiGetFont,
 } from 'glov/client/ui';
 import * as walltime from 'glov/client/walltime';
+import { Differ, differCreate } from 'glov/common/differ';
 import { randCreate } from 'glov/common/rand_alea';
 import {
   clamp,
+  clone,
   easeIn,
   easeInOut,
   lerp,
@@ -58,6 +68,7 @@ import {
   palette,
   palette_font,
 } from './palette';
+import { titleInit } from './title';
 
 const { abs, floor, max, min } = Math;
 
@@ -69,13 +80,6 @@ Z.FLOATERS = 20;
 Z.UI = 200;
 Z.UIFLOATERS = 300;
 
-// Virtual viewport for our game logic
-const game_width = 384;
-const game_height = 256;
-
-const TILE_SIZE = 15;
-const FONT_HEIGHT = 8;
-const BUTTON_HEIGHT = TILE_SIZE + 4;
 
 const TICK_TIME = 1000;
 const PAYOUT_TIME = TICK_TIME * 6;
@@ -122,6 +126,8 @@ const BASE_RESOURCES = [
 ] as const;
 type BaseResourceType = typeof BASE_RESOURCES[number];
 type LevelDef = {
+  name: string;
+  players: number;
   w: number;
   h: number;
   starting_power: number;
@@ -131,8 +137,49 @@ type LevelDef = {
 };
 
 const level_defs: LevelDef[] = [{
-  w: 11,
-  h: 11,
+  name: 'Tutorial',
+  players: 1,
+  w: 9,
+  h: 9,
+  starting_power: 7,
+  starting_money: 600,
+  seed: 1234,
+  resources: {
+    wood: 3,
+    stone: 3,
+    fruit: 3,
+  },
+}, {
+  name: 'Small (Solo)',
+  players: 1,
+  w: 17,
+  h: 15,
+  starting_power: 7,
+  starting_money: 600,
+  seed: 2345,
+  resources: {
+    wood: 3,
+    stone: 3,
+    fruit: 3,
+  },
+}, {
+  name: 'Medium (2P)',
+  players: 2,
+  w: 25,
+  h: 17,
+  starting_power: 7,
+  starting_money: 600,
+  seed: 1234,
+  resources: {
+    wood: 3,
+    stone: 3,
+    fruit: 3,
+  },
+}, {
+  name: 'Large (4P)',
+  players: 1,
+  w: 49,
+  h: 33,
   starting_power: 7,
   starting_money: 600,
   seed: 1234,
@@ -142,6 +189,8 @@ const level_defs: LevelDef[] = [{
     fruit: 3,
   },
 }, ...(engine.DEBUG ? [{
+  name: 'debug',
+  players: 1,
   w: 11,
   h: 11,
   starting_power: 5,
@@ -153,6 +202,10 @@ const level_defs: LevelDef[] = [{
     fruit: 3,
   },
 }] : [])];
+
+export function getLevelDefs(): LevelDef[] {
+  return level_defs;
+}
 
 type FloatStyle = 'base_sale' | 'error' | 'buy' | 'sell' | 'day_end';
 const FLOAT_TIME: Record<FloatStyle, number> = {
@@ -197,6 +250,20 @@ type MapEntry = {
   nodraw?: boolean;
   rot?: number;
 };
+
+type PlayerData = {
+  user_id: string;
+  money: number;
+  payout_index: number;
+};
+
+type GameStateSerialized = {
+  map: (MapEntry | null)[][];
+  ld_idx: number;
+  game_start_time: number;
+  players: PlayerData[];
+};
+
 
 type Drone = {
   orig_x: number;
@@ -911,7 +978,7 @@ class GameState {
       }
     });
 
-    if (engine.DEBUG) {
+    if (engine.DEBUG && false) {
       this.map[9][4] = {
         type: 'spawner',
         rot: 0,
@@ -1099,8 +1166,46 @@ class GameState {
     if (dmoney) {
       this.float(dmoney > 0 ? 'sell' : 'buy', x, y, `${(dmoney < 0) ? '-' : '+'}$${Math.abs(dmoney)}`);
       this.money += dmoney;
+
+      // eslint-disable-next-line @typescript-eslint/no-use-before-define
+      sendDiff();
     }
     // this.saveState();
+  }
+
+  serialize(): GameStateSerialized {
+    let { map, w, h } = this;
+    let mapout: (MapEntry | null)[][] = [];
+    for (let jj = 0; jj < h; ++jj) {
+      let row = map[jj];
+      let rowout: (MapEntry | null)[] = [];
+      mapout.push(rowout);
+      for (let ii = 0; ii < w; ++ii) {
+        rowout.push(row[ii] ? clone(row[ii])! : null);
+      }
+    }
+    return {
+      map: mapout,
+      ld_idx: this.ld_idx,
+      game_start_time: this.game_start_time,
+      players: [],
+    };
+  }
+
+  deserialize(ser: GameStateSerialized): void {
+    let { map, w, h } = this;
+    assert.equal(ser.map.length, h);
+    assert.equal(ser.map[0].length, w);
+    assert.equal(ser.ld_idx, this.ld_idx);
+    for (let jj = 0; jj < h; ++jj) {
+      for (let ii = 0; ii < w; ++ii) {
+        let elem = ser.map[jj][ii];
+        map[jj][ii] = elem ? clone(elem!) : undefined;
+      }
+    }
+    for (let ii = 0; ii < ser.players.length; ++ii) {
+      // this.players[ii] = ser.players[ii];
+    }
   }
 
 }
@@ -1179,14 +1284,16 @@ let is_ff = false;
 function drawHUD(eff_is_ff: boolean): void {
   let y = camera2d.y0();
   let max_power = game_state.maxPower();
-  font.draw({
-    style: style_floater,
-    x: 0, w: game_width,
-    y: y + 2,
-    align: ALIGN.HCENTER | ALIGN.HWRAP,
-    text: `Revenue: $${game_state.calcValue()}/day  ` +
-      `Step: ${min(max_power, max_power - game_state.sim_state.power)} / ${max_power}`,
-  });
+  if (game_state.sim_state.drones.length) {
+    font.draw({
+      style: style_floater,
+      x: 0, w: game_width,
+      y: y + 2,
+      align: ALIGN.HCENTER | ALIGN.HWRAP,
+      text: `Revenue: $${game_state.calcValue()}/day  ` +
+        `Step: ${min(max_power, max_power - game_state.sim_state.power)} / ${max_power}`,
+    });
+  }
 
   const TOOL_PAD = 4;
   let x = camera2d.x0();
@@ -1224,11 +1331,12 @@ function drawHUD(eff_is_ff: boolean): void {
     y += BUTTON_HEIGHT + TOOL_PAD;
   }
 
+  let net_worth = game_state.calcNetWorth();
   font.draw({
     style: style_floater,
     x, y, z, w,
     align: ALIGN.HWRAP | ALIGN.HCENTER,
-    text: `Money:\n$${game_state.money}\n\nNet worth:\n$${game_state.calcNetWorth()}`,
+    text: `Money:\n$${game_state.money}${net_worth !== game_state.money ? `\n\nNet worth:\n$${net_worth}` : ''}`,
   });
 
   x = camera2d.x1();
@@ -1244,7 +1352,8 @@ function drawHUD(eff_is_ff: boolean): void {
   }
 
   if (gamebutton('icon-menu', 'Save and exit to menu.\n\nHotkey: M', KEYS.M)) {
-    // TODO
+    // TODO: leave channel
+    // TODO: titleInit
   }
   if (gamebutton(eff_is_ff ? 'icon-ff' : 'icon-play', 'Toggle game speed.\n\nNote: money is awarded in' +
     ' real-time, even when you are not logged in, the game speed toggle is only' +
@@ -1458,6 +1567,9 @@ function statePlay(dt: number): void {
     game_state.sim_state.power < 0 ?
       counter / TICK_TIME * 2 - 1 :
       0;
+  if (!game_state.sim_state.drones.length) {
+    fade = 0;
+  }
   fade = clamp(fade, 0, 1);
   let full_rect = {
     x: camera2d.x0Real(),
@@ -1742,20 +1854,39 @@ function statePlay(dt: number): void {
   drawFloaters(ui_floaters, dt_orig, Z.UIFLOATERS, FONT_HEIGHT * 2);
 }
 
-function playInit(): void {
+let differ: Differ;
+let game_room: ClientChannelWorker;
+function sendDiff(): void {
+  let diff = differ.update(game_state.serialize());
+  if (diff.length) {
+    let pak = game_room.pak('edit_op');
+    pak.writeJSON(diff);
+    pak.send(function (err: string | null) {
+      if (err) {
+        throw err;
+      }
+    });
+  }
+
+}
+
+export function playInit(level_idx: number, channel: ClientChannelWorker): void {
+  game_room = channel;
   engine.setState(statePlay);
   counter = 0;
   selected_tool = engine.DEBUG ? 0 : -1;
   selected_rot = 0;
   is_ff = false;
-  game_state = new GameState(engine.DEBUG ? 1 : 0);
+  game_state = new GameState(level_idx);
+  differ = differCreate(game_state.serialize(), { history_size: 128 });
 }
 
 export function main(): void {
-  if (platformParameterGet('reload_updates') && engine.DEBUG) {
-    // Enable auto-reload, etc
-    netInit({ engine });
-  }
+  netInit({
+    engine,
+    cmd_parse,
+    auto_create_user: true,
+  });
 
   // const font_info_04b03x2 = require('./img/font/04b03_8x2.json');
   const font_info_04b03x1 = require('./img/font/04b03_8x1.json');
@@ -1798,6 +1929,8 @@ export function main(): void {
   }
   font = uiGetFont();
 
+  socialInit();
+
   // Perfect sizes for pixely modes
   scaleSizes(13 / 32);
   setFontHeight(FONT_HEIGHT);
@@ -1815,5 +1948,6 @@ export function main(): void {
 
   init();
 
-  playInit();
+  // playInit();
+  titleInit();
 }

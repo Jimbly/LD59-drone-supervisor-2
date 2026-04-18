@@ -14,12 +14,8 @@ Start with: `npm start` (after running `npm i` once)
 
 TODO
 ====
-Add simulation speed toggle divorced from walltime and rewards
-* only give rewards when simulation day finishes *and* walltime requirement has passed
 
-Questions:
-* Can we upgrade day length?  If not, then we need faster locomotion / cannons, or longer days and a way to skip
-* Either is probably fine for MP, other people's drones just run out of power sooner
+client needs to do a general set channel data with entire game state upon first connect if game data is empty
 
 Main screen:
 * login / play as guest
@@ -29,6 +25,10 @@ Main screen:
 Tutorial game (single-player, but still on server)
 Multiplayer logic
   goal: total revenue / day
+
+Questions:
+* Can we upgrade day length?  If not, then we need faster locomotion / cannons, or longer days and a way to skip
+* Either is probably fine for MP, other people's drones just run out of power sooner
 
 Additional recipes and resources (unique colored gems)
 

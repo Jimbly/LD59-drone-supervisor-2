@@ -12,6 +12,8 @@ import {
 } from 'glov/server/request_utils';
 import * as glov_server from 'glov/server/server';
 import minimist from 'minimist';
+import { multiplayerWorkerInit } from './multiplayer_worker';
+import { roomlistWorkerInit } from './roomlist_worker';
 
 const argv = minimist(process.argv.slice(2));
 
@@ -71,6 +73,9 @@ glov_server.startup({
 
 // Opt-in to the permissions token system (Note: make sure config/server.json:forward_depth is correct!)
 permTokenWorkerInit(glov_server.channel_server, app);
+
+multiplayerWorkerInit(glov_server.channel_server);
+roomlistWorkerInit(glov_server.channel_server);
 
 let port = argv.port || process.env.port || 3000;
 
