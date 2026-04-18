@@ -16,7 +16,6 @@ TODO
 ====
 * fade day in/out and show money gained
   * button and hotkey to reset the day immediately (try doing this upon every placement near an actor?)
-* accumulate money on base, don't do floaters in the same way as buy/sell?
 * fade out / to black trashed items
 * undo/redo
 

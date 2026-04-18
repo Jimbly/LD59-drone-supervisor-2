@@ -8,7 +8,7 @@ import { autoAtlas } from 'glov/client/autoatlas';
 import * as camera2d from 'glov/client/camera2d';
 import { platformParameterGet } from 'glov/client/client_config';
 import * as engine from 'glov/client/engine';
-import { ALIGN, Font, fontStyle, fontStyleColored } from 'glov/client/font';
+import { ALIGN, Font, FontStyle, fontStyle, fontStyleColored } from 'glov/client/font';
 import {
   drag,
   keyDown,
@@ -61,6 +61,8 @@ Z.BACKGROUND = 1;
 Z.SPRITES = 10;
 Z.MAP = 10;
 Z.FLOATERS = 20;
+Z.UI = 200;
+Z.UIFLOATERS = 300;
 
 // Virtual viewport for our game logic
 const game_width = 384;
@@ -81,9 +83,17 @@ const clear_color = palette[PAL_BORDER];
 
 const style_floater = fontStyle(null, {
   color: palette_font[PAL_WHITE],
-  outline_width: 2.5,
+  outline_width: 4,
+  outline_color: palette_font[PAL_BLACK] & 0xFFFFFF00 | 0xDD,
+});
+
+const style_base_money = fontStyle(null, {
+  color: palette_font[PAL_GREEN],
+  outline_width: 4,
   outline_color: palette_font[PAL_BLACK],
 });
+
+const style_day_end = style_base_money;
 
 const SIGNAL_DIST = 3;
 
@@ -126,7 +136,7 @@ const level_defs: LevelDef[] = [{
 }, ...(engine.DEBUG ? [{
   w: 11,
   h: 11,
-  starting_power: 7,
+  starting_power: 5,
   starting_money: 5000,
   seed: 1234,
   resources: {
@@ -136,12 +146,16 @@ const level_defs: LevelDef[] = [{
   },
 }] : [])];
 
-type FloatStyle = 'base_sale' | 'error' | 'buy' | 'sell';
+type FloatStyle = 'base_sale' | 'error' | 'buy' | 'sell' | 'day_end';
 const FLOAT_TIME: Record<FloatStyle, number> = {
   base_sale: 3000,
+  day_end: 4000,
   error: 1000,
   buy: 1000,
   sell: 1000,
+};
+const FLOAT_STYLE: Partial<Record<FloatStyle, FontStyle>> = {
+  day_end: style_day_end,
 };
 
 const ROT_TO_DIR = [
@@ -346,8 +360,8 @@ class SimState {
   constructor(parent: GameState, float: FloatCB | null) {
     this.float = float;
     this.parent = parent;
-    let { w, h, ld, map } = parent;
-    this.power = ld.starting_power;
+    let { w, h, map } = parent;
+    this.power = parent.maxPower();
 
     this.busy = new Array(h);
     this.drone_map = new Array(h);
@@ -493,7 +507,7 @@ class SimState {
 
           this.float?.(
             'base_sale',
-            ticker.x + base_contents_coords[ii][0], ticker.y + base_contents_coords[ii][1],
+            ticker.x + 1, ticker.y + 1,
             `${res}: +$${resource_value}`);
           // playUISound('sell');
         }
@@ -813,12 +827,25 @@ class SimState {
 }
 
 type Floater = {
+  style: FloatStyle;
   t: number;
   t1: number;
   x: number;
   y: number;
   str: string;
 };
+
+let ui_floaters: Floater[] = [];
+function uiFloat(style: FloatStyle, x: number, y: number, str: string): void {
+  ui_floaters.push({
+    style,
+    t: 0,
+    t1: FLOAT_TIME[style],
+    x,
+    y,
+    str,
+  });
+}
 
 class GameState {
   w: number;
@@ -873,13 +900,17 @@ class GameState {
     });
 
     if (engine.DEBUG) {
+      this.map[9][4] = {
+        type: 'spawner',
+        rot: 0,
+      };
       this.map[10][0] = {
         type: 'spawner',
         rot: 0,
       };
       this.map[7][5] = {
         type: 'spawner',
-        rot: 3,
+        rot: 1,
       };
       this.map[5][1] = {
         type: 'craft',
@@ -905,18 +936,30 @@ class GameState {
     this.resetDay();
   }
 
+  maxPower(): number {
+    return this.ld.starting_power;
+  }
+
   floaters: Floater[] = [];
   float(style: FloatStyle, x: number, y: number, str: string): void {
     this.floaters.push({
+      style,
       t: 0,
       t1: FLOAT_TIME[style],
-      x, y, str,
+      x: x * TILE_SIZE + TILE_SIZE / 2, y: y * TILE_SIZE, str,
     });
   }
 
   resetDay(): void {
     if (this.sim_state) {
-      this.money += this.sim_state.money_earned;
+      let dm = this.calcValue();
+      if (dm) {
+        this.money += dm;
+        uiFloat('day_end',
+          camera2d.x0() + camera2d.w() * 0.5,
+          camera2d.y0() + FONT_HEIGHT * 2,
+          `Day end: +$${dm}`);
+      }
     }
     this.sim_state = new SimState(this, this.float.bind(this));
   }
@@ -1092,11 +1135,14 @@ let selected_tool = -1;
 let selected_rot = 0;
 function drawHUD(): void {
   let y = camera2d.y0();
+  let max_power = game_state.maxPower();
   font.draw({
+    style: style_floater,
     x: 0, w: game_width,
     y,
-    align: ALIGN.HCENTER,
-    text: `value: ${game_state.calcValue()}  money: ${game_state.money}`,
+    align: ALIGN.HCENTER | ALIGN.HWRAP,
+    text: `value: $${game_state.calcValue()}/day  money: $${game_state.money}  ` +
+      `step: ${min(max_power, max_power - game_state.sim_state.power)} / ${max_power}`,
   });
 
   const TOOL_PAD = 4;
@@ -1136,8 +1182,7 @@ function drawHUD(): void {
   }
 }
 
-function drawFloaters(dt: number): void {
-  let { floaters } = game_state;
+function drawFloaters(floaters: Floater[], dt: number, z: number): void {
   for (let ii = floaters.length - 1; ii >= 0; --ii) {
     let floater = floaters[ii];
     floater.t += dt;
@@ -1146,11 +1191,11 @@ function drawFloaters(dt: number): void {
       continue;
     }
     font.draw({
-      style: style_floater,
+      style: FLOAT_STYLE[floater.style] || style_floater,
       alpha: min(1, (floater.t1 - floater.t) / 250),
-      x: floater.x * TILE_SIZE + TILE_SIZE/2,
-      y: (floater.y - floater.t / floater.t1) * TILE_SIZE,
-      z: Z.FLOATERS,
+      x: floater.x,
+      y: floater.y - floater.t / floater.t1 * TILE_SIZE,
+      z,
       align: ALIGN.HCENTER,
       text: floater.str,
     });
@@ -1313,7 +1358,7 @@ function buildMode(): void {
 let counter = 0;
 const TICK_TIME = 1000;
 function statePlay(dt: number): void {
-
+  let dt_orig = dt;
   if (keyDown(KEYS.SHIFT)) {
     dt *= 5;
   }
@@ -1341,8 +1386,8 @@ function statePlay(dt: number): void {
     view_center[1] -= drag_ret.delta[1] / TILE_SIZE;
   }
   camera2d.push();
-  let x0 = view_center[0] * TILE_SIZE - camera2d.w() / 2;
-  let y0 = view_center[1] * TILE_SIZE - camera2d.h() / 2;
+  let x0 = floor(view_center[0] * TILE_SIZE - camera2d.w() / 2);
+  let y0 = floor(view_center[1] * TILE_SIZE - camera2d.h() / 2);
   camera2d.set(x0, y0, x0 + camera2d.w(), y0 + camera2d.h());
   let { map, w, h, sim_state } = game_state;
   let { drones, transfers, sim_map } = sim_state;
@@ -1370,6 +1415,8 @@ function statePlay(dt: number): void {
   }
 
   // draw map
+  let homebase_x = 0;
+  let homebase_y = 0;
   for (let yy = 0; yy < h; ++yy) {
     let row = map[yy];
     let sim_row = sim_map[yy];
@@ -1406,6 +1453,9 @@ function statePlay(dt: number): void {
       } else if (tile.type === 'spawner') {
         color = color_spawner;
         zz -= 0.1;
+      } else if (tile.type === 'base') {
+        homebase_x = xx;
+        homebase_y = yy;
       }
       autoAtlas('main', frame).draw({
         x: xx * TILE_SIZE,
@@ -1460,6 +1510,17 @@ function statePlay(dt: number): void {
     }
   }
   z++;
+
+  if (homebase_x) {
+    font.draw({
+      style: style_base_money,
+      x: (homebase_x + 1.5) * TILE_SIZE,
+      y: homebase_y * TILE_SIZE + 28,
+      z,
+      align: ALIGN.HCENTER,
+      text: `$${sim_state.money_earned}`,
+    });
+  }
 
   // draw drones
   let progress = t;
@@ -1570,11 +1631,12 @@ function statePlay(dt: number): void {
     }
   }
 
-  drawFloaters(dt);
+  drawFloaters(game_state.floaters, dt_orig, Z.FLOATERS);
 
   buildMode();
 
   camera2d.pop();
+  drawFloaters(ui_floaters, dt_orig, Z.UIFLOATERS);
 }
 
 function playInit(): void {
@@ -1591,9 +1653,9 @@ export function main(): void {
     netInit({ engine });
   }
 
-  const font_info_04b03x2 = require('./img/font/04b03_8x2.json');
+  // const font_info_04b03x2 = require('./img/font/04b03_8x2.json');
   const font_info_04b03x1 = require('./img/font/04b03_8x1.json');
-  const font_info_palanquin32 = require('./img/font/palanquin32.json');
+  // const font_info_palanquin32 = require('./img/font/palanquin32.json');
   let pixely = 'on';
   let font_def;
   let ui_sprites;
@@ -1603,10 +1665,11 @@ export function main(): void {
     ui_sprites = spriteSetGet('pixely');
     pixel_perfect = 1;
   } else if (pixely && pixely !== 'off') {
-    font_def = { info: font_info_04b03x2, texture: 'font/04b03_8x2' };
+    font_def = { info: font_info_04b03x1, texture: 'font/04b03_8x1' };
+    // font_def = { info: font_info_04b03x2, texture: 'font/04b03_8x2' };
     ui_sprites = spriteSetGet('pixely');
-  } else {
-    font_def = { info: font_info_palanquin32, texture: 'font/palanquin32' };
+  // } else {
+  //   font_def = { info: font_info_palanquin32, texture: 'font/palanquin32' };
   }
 
   if (!engine.startup({
