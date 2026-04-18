@@ -1064,16 +1064,17 @@ function cellFrame(type: CellType, rot: number): string {
 let selected_tool = -1;
 let selected_rot = 0;
 function drawHUD(): void {
+  let y = camera2d.y0();
   font.draw({
     x: 0, w: game_width,
-    y: 0,
+    y,
     align: ALIGN.HCENTER,
     text: `value: ${game_state.calcValue()}  money: ${game_state.money}`,
   });
 
   const TOOL_PAD = 4;
   let x = camera2d.x0();
-  let y = camera2d.y0();
+  y = camera2d.y0();
   let z = Z.UI;
   let w = 64;
   x += TOOL_PAD;
@@ -1310,9 +1311,9 @@ function statePlay(dt: number): void {
     view_center[1] -= drag_ret.delta[1] / TILE_SIZE;
   }
   camera2d.push();
-  let x0 = view_center[0] * TILE_SIZE - game_width / 2;
-  let y0 = view_center[1] * TILE_SIZE - game_height / 2;
-  camera2d.set(x0, y0, x0 + game_width, y0 + game_height);
+  let x0 = view_center[0] * TILE_SIZE - camera2d.w() / 2;
+  let y0 = view_center[1] * TILE_SIZE - camera2d.h() / 2;
+  camera2d.set(x0, y0, x0 + camera2d.w(), y0 + camera2d.h());
   let { map, w, h, sim_state } = game_state;
   let { drones, transfers, sim_map } = sim_state;
   let z = Z.MAP;
@@ -1585,6 +1586,7 @@ export function main(): void {
     font: font_def,
     viewport_postprocess: false,
     antialias: false,
+    do_borders: false,
     ui_sprites: {
       ...ui_sprites,
       color_set_shades: [1,1,1],
