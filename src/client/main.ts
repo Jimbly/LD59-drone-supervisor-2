@@ -68,7 +68,7 @@ import {
   palette,
   palette_font,
 } from './palette';
-import { titleInit } from './title';
+import { titleInit, titleReturn } from './title';
 
 const { abs, floor, max, min } = Math;
 
@@ -177,7 +177,7 @@ const level_defs: LevelDef[] = [{
   },
 }, {
   name: 'Large (4P)',
-  players: 1,
+  players: 4,
   w: 49,
   h: 33,
   starting_power: 7,
@@ -254,10 +254,11 @@ type MapEntry = {
 type PlayerData = {
   user_id: string;
   money: number;
+  revenue: number;
   payout_index: number;
 };
 
-type GameStateSerialized = {
+export type GameStateSerialized = {
   map: (MapEntry | null)[][];
   ld_idx: number;
   game_start_time: number;
@@ -792,11 +793,11 @@ class SimState {
       return;
     }
     ++this.busy[y][x];
-    let other_drone = this.drone_map[x][y];
+    let other_drone = this.drone_map[y][x];
     if (other_drone && other_drone.rot === (drone.rot + 2) % 4) {
       // can't move directly across one another's paths, block both!
-      this.busy[x][y] = 99;
-      this.busy[drone.x][drone.y] = 99;
+      this.busy[y][x] = 99;
+      this.busy[drone.y][drone.x] = 99;
     }
   }
 
@@ -927,20 +928,29 @@ class GameState {
   h: number;
   map: (MapEntry | undefined)[][];
   ld: LevelDef;
-  money: number;
   sim_state!: SimState;
   ld_idx: number;
   game_start_time: number;
-  game_payout_index: number;
-  constructor(ld_idx: number) {
+  players: PlayerData[];
+  my_player_idx: number;
+  constructor(ld_idx: number, player_idx: number) {
     let ld = level_defs[ld_idx];
+    this.my_player_idx = player_idx;
     this.ld_idx = ld_idx;
     this.ld = ld;
     this.game_start_time = walltime.now() - PAYOUT_TIME / 2;
-    this.game_payout_index = 0;
     let w = this.w = ld.w;
     let h = this.h = ld.h;
-    this.money = ld.starting_money;
+    let players = [];
+    for (let ii = 0; ii < ld.players; ++ii) {
+      players.push({
+        user_id: '',
+        money: ld.starting_money,
+        revenue: 0,
+        payout_index: 0,
+      });
+    }
+    this.players = players;
 
     this.map = new Array(h);
     for (let ii = 0; ii < h; ++ii) {
@@ -1029,23 +1039,27 @@ class GameState {
     });
   }
 
+  me(): PlayerData {
+    return this.players[this.my_player_idx];
+  }
+
   resetDay(): void {
     this.sim_state = new SimState(this, this.float.bind(this));
   }
   awardMoney(): void {
     let expected_idx = floor((walltime.now() - this.game_start_time) / PAYOUT_TIME);
-    let delta = expected_idx - this.game_payout_index;
+    let delta = expected_idx - this.me().payout_index;
     if (delta > 0) {
       let dm = this.calcValue();
       if (dm) {
         dm *= delta;
-        this.money += dm;
+        this.me().money += dm;
         uiFloat('day_end',
           camera2d.x0() + camera2d.w() * 0.5,
           camera2d.y0() + FONT_HEIGHT * 2,
           `Day end${delta > 1 ? ` (x${delta})` : ''}: +$${dm}`);
       }
-      this.game_payout_index = expected_idx;
+      this.me().payout_index = expected_idx;
     }
   }
 
@@ -1083,7 +1097,7 @@ class GameState {
         }
       }
     }
-    return r + this.money;
+    return r + this.me().money;
   }
 
   countOf(tile_type: CellType): number {
@@ -1118,6 +1132,7 @@ class GameState {
     // }
     let tile = this.map[y][x];
     let dmoney = 0;
+    let diff = false;
     if (!tile_type) {
       // selling
       if (tile) {
@@ -1139,10 +1154,11 @@ class GameState {
         tile.rot = ((tile.rot || 0) + 1) % (MAX_ROT[tile.type] || 1);
         // sound_manager.play('drone/place_rotate');
         this.sim_state.updateMapEdit(x, y);
+        diff = true;
       } else {
         assert(!tile);
         dmoney = -this.costOf(tile_type, 1);
-        if (-dmoney > this.money) {
+        if (-dmoney > this.me().money) {
           // sound_manager.play('drone/place_error');
           this.float('error', x, y, `Cannot afford $${-dmoney}`);
           dmoney = 0;
@@ -1165,8 +1181,9 @@ class GameState {
     }
     if (dmoney) {
       this.float(dmoney > 0 ? 'sell' : 'buy', x, y, `${(dmoney < 0) ? '-' : '+'}$${Math.abs(dmoney)}`);
-      this.money += dmoney;
-
+      this.me().money += dmoney;
+    }
+    if (dmoney || diff) {
       // eslint-disable-next-line @typescript-eslint/no-use-before-define
       sendDiff();
     }
@@ -1188,7 +1205,7 @@ class GameState {
       map: mapout,
       ld_idx: this.ld_idx,
       game_start_time: this.game_start_time,
-      players: [],
+      players: clone(this.players),
     };
   }
 
@@ -1197,6 +1214,7 @@ class GameState {
     assert.equal(ser.map.length, h);
     assert.equal(ser.map[0].length, w);
     assert.equal(ser.ld_idx, this.ld_idx);
+    this.game_start_time = ser.game_start_time;
     for (let jj = 0; jj < h; ++jj) {
       for (let ii = 0; ii < w; ++ii) {
         let elem = ser.map[jj][ii];
@@ -1204,10 +1222,11 @@ class GameState {
       }
     }
     for (let ii = 0; ii < ser.players.length; ++ii) {
-      // this.players[ii] = ser.players[ii];
+      this.players[ii] = clone(ser.players[ii]);
     }
-  }
 
+    this.resetDay();
+  }
 }
 
 let game_state: GameState;
@@ -1332,11 +1351,12 @@ function drawHUD(eff_is_ff: boolean): void {
   }
 
   let net_worth = game_state.calcNetWorth();
+  let money = game_state.me().money;
   font.draw({
     style: style_floater,
     x, y, z, w,
     align: ALIGN.HWRAP | ALIGN.HCENTER,
-    text: `Money:\n$${game_state.money}${net_worth !== game_state.money ? `\n\nNet worth:\n$${net_worth}` : ''}`,
+    text: `Money:\n$${money}${net_worth !== money ? `\n\nNet worth:\n$${net_worth}` : ''}`,
   });
 
   x = camera2d.x1();
@@ -1352,8 +1372,8 @@ function drawHUD(eff_is_ff: boolean): void {
   }
 
   if (gamebutton('icon-menu', 'Save and exit to menu.\n\nHotkey: M', KEYS.M)) {
-    // TODO: leave channel
-    // TODO: titleInit
+    // eslint-disable-next-line @typescript-eslint/no-use-before-define
+    playLeave();
   }
   if (gamebutton(eff_is_ff ? 'icon-ff' : 'icon-play', 'Toggle game speed.\n\nNote: money is awarded in' +
     ' real-time, even when you are not logged in, the game speed toggle is only' +
@@ -1857,6 +1877,7 @@ function statePlay(dt: number): void {
 let differ: Differ;
 let game_room: ClientChannelWorker;
 function sendDiff(): void {
+  game_state.me().revenue = game_state.calcValue();
   let diff = differ.update(game_state.serialize());
   if (diff.length) {
     let pak = game_room.pak('edit_op');
@@ -1867,17 +1888,28 @@ function sendDiff(): void {
       }
     });
   }
-
 }
 
-export function playInit(level_idx: number, channel: ClientChannelWorker): void {
+function playLeave(): void {
+  game_room.unsubscribe();
+  game_room = null!;
+  titleReturn();
+}
+
+export function playNewGameState(level_idx: number): GameStateSerialized {
+  let temp = new GameState(level_idx, 0);
+  return temp.serialize();
+}
+
+export function playInit(level_idx: number, player_idx: number, channel: ClientChannelWorker): void {
   game_room = channel;
   engine.setState(statePlay);
   counter = 0;
   selected_tool = engine.DEBUG ? 0 : -1;
   selected_rot = 0;
   is_ff = false;
-  game_state = new GameState(level_idx);
+  game_state = new GameState(level_idx, player_idx);
+  game_state.deserialize(channel.getChannelData<GameStateSerialized>('public.gs', null!));
   differ = differCreate(game_state.serialize(), { history_size: 128 });
 }
 

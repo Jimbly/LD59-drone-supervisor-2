@@ -1,6 +1,5 @@
 import assert from 'assert';
 import {
-  HandlerSource,
   LoggedInClientHandlerSource,
   NetResponseCallback,
   TSMap,
@@ -8,6 +7,7 @@ import {
 import { ChannelServer } from 'glov/server/channel_server';
 import { ChannelWorker } from 'glov/server/channel_worker';
 import { randAlphaNumericId } from 'glov/server/server_util';
+import { UserJoinParam } from './multiplayer_worker';
 
 class RoomListWorker extends ChannelWorker {
   // constructor(channel_server, channel_id, channel_data) {
@@ -21,7 +21,7 @@ RoomListWorker.prototype.auto_destroy = true;
 RoomListWorker.prototype.require_subscribe = false;
 
 export type RoomListResponse = {
-  rooms: unknown[];
+  rooms: RoomRecord[];
 };
 
 export type RoomRequest = {
@@ -34,20 +34,42 @@ export type RoomResponse = {
   player_idx: number;
 };
 
-type RoomRecord = {
+export type RoomRecord = {
+  room_id: string;
   level_idx: number;
   players: string[];
   num_players: number;
 };
 
-RoomListWorker.registerClientHandler('list_get', function (
+RoomListWorker.registerLoggedInClientHandler('list_get', function (
   this: RoomListWorker,
-  src: HandlerSource,
+  src: LoggedInClientHandlerSource,
   data: unknown,
   resp_func: NetResponseCallback<RoomListResponse>
 ): void {
+  let { user_id } = src;
+  let rooms = this.getChannelData<TSMap<RoomRecord>>('rooms', {});
+
+  let my_rooms = [];
+  let open_rooms = [];
+  let open_count: Record<number, number> = {};
+  for (let key in rooms) {
+    let entry = rooms[key]!;
+    entry.room_id = key; // fix up old data
+    if (entry.players.includes(user_id)) {
+      my_rooms.push(entry);
+    } else {
+      if (entry.players.length < entry.num_players) {
+        let c = open_count[entry.level_idx] = (open_count[entry.level_idx] || 0) + 1;
+        if (c < 4) {
+          open_rooms.push(entry);
+        }
+      }
+    }
+  }
+
   resp_func(null, {
-    rooms: [],
+    rooms: my_rooms.concat(open_rooms),
   });
 });
 
@@ -69,6 +91,7 @@ RoomListWorker.registerLoggedInClientHandler('room_alloc', function (
     ++len;
   } while (rooms[room_id]);
   let roomrec: RoomRecord = {
+    room_id,
     level_idx: data.level_idx,
     players: [src.user_id],
     num_players: data.num_players,
@@ -79,6 +102,63 @@ RoomListWorker.registerLoggedInClientHandler('room_alloc', function (
     room_id,
     player_idx: 0,
   });
+});
+
+RoomListWorker.registerLoggedInClientHandler('room_join', function (
+  this: RoomListWorker,
+  src: LoggedInClientHandlerSource,
+  room_id: string,
+  resp_func: NetResponseCallback<RoomResponse>
+): void {
+  assert(room_id);
+  assert.equal(typeof room_id, 'string');
+  assert(room_id.match(/^[0-9A-Z]+$/));
+  let room = this.getChannelData<RoomRecord | null>(`rooms.${room_id}`, null);
+  assert(room);
+  if (room.players.length >= room.num_players) {
+    return resp_func('ERR_ROOM_FULL');
+  }
+  let player_idx = room.players.length;
+  room.players.push(src.user_id);
+  this.setChannelData(`rooms.${room_id}.players`, room.players);
+  this.sendChannelMessage<UserJoinParam>(`multiplayer.${room_id}`, 'user_join', {
+    player_idx,
+    user_id: src.user_id,
+  }, function (err) {
+    if (err) {
+      throw err;
+    }
+    resp_func(null, {
+      room_id,
+      player_idx,
+    });
+  });
+});
+
+RoomListWorker.registerLoggedInClientHandler('forget', function (
+  this: RoomListWorker,
+  src: LoggedInClientHandlerSource,
+  room_id: string,
+  resp_func: NetResponseCallback<RoomResponse>
+): void {
+  let { user_id } = src;
+  assert(room_id);
+  assert.equal(typeof room_id, 'string');
+  assert(room_id.match(/^[0-9A-Z]+$/));
+  let room = this.getChannelData<RoomRecord | null>(`rooms.${room_id}`, null);
+  assert(room);
+  let player_idx = room.players.indexOf(user_id);
+  if (player_idx === -1) {
+    return resp_func('ERR_NOT_IN_ROOM');
+  }
+  room.players[player_idx] = `left:${user_id}`;
+  this.setChannelData(`rooms.${room_id}.players.${player_idx}`, room.players[player_idx]);
+  resp_func();
+  // this.sendChannelMessage<UserJoinParam>(`multiplayer.${room_id}`, 'user_leave', {
+  //   player_idx,
+  //   user_id: src.user_id,
+  // }, function (err) {
+  // });
 });
 
 
