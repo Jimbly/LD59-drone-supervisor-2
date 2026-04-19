@@ -149,6 +149,17 @@ const RESOURCES = [
   'beer',
   'jam',
   'fire',
+  'game',
+  'acid',
+  'pie',
+  'music',
+  'gamejam',
+  'copper',
+  'gold',
+  'ringa',
+  'ringb',
+  'soulgem',
+  'soulmusic',
 ] as const;
 type ResourceType = typeof RESOURCES[number];
 const BASE_RESOURCES = [
@@ -162,6 +173,8 @@ type BaseResourceType = typeof BASE_RESOURCES[number];
 const RESOURCE_NAME: Partial<Record<ResourceType, string>> = {
   gema: 'Amethyst',
   gemb: 'Sapphire',
+  ringa: 'Amethyst Ring',
+  ringb: 'Sapphire Ring',
 };
 function resName(res: ResourceType): string {
   return capitalize(RESOURCE_NAME[res] || res);
@@ -205,7 +218,7 @@ const level_defs: LevelDef[] = [{
   starting_power: 9,
   starting_money: 600,
   seed: 2345,
-  goal: 1000,
+  goal: 2000,
   resources: {
     wood: 3,
     stone: 3,
@@ -218,10 +231,10 @@ const level_defs: LevelDef[] = [{
   players: 2,
   w: 17,
   h: 21,
-  starting_power: 9,
+  starting_power: 10,
   starting_money: 600,
   seed: 0,
-  goal: 2000,
+  goal: 6000,
   resources: {
     wood: 4,
     stone: 4,
@@ -234,10 +247,10 @@ const level_defs: LevelDef[] = [{
   players: 4,
   w: 25,
   h: 21,
-  starting_power: 9,
+  starting_power: 11,
   starting_money: 600,
   seed: 0,
-  goal: 4000,
+  goal: 14000,
   resources: {
     wood: 5,
     stone: 5,
@@ -429,24 +442,51 @@ function cmpTickable(a: SimMapEntry, b: SimMapEntry): number {
   return a.x - b.x;
 }
 
-const VALF = 65;
-const VALW = 80;
-const VALS = 100;
-const VALG = 250;
-const VAL2 = 135;
+const VAL_FRUIT = 65;
+const VAL_WOOD = 80;
+const VAL_STONE = 100;
+const VAL_GEM = 250;
+const VAL_CRAFT1 = 135;
+const VAL_CRAFT2 = 200;
+const VAL_CRAFT3 = 450;
+const VAL_BEER = VAL_FRUIT + VAL_WOOD + VAL_CRAFT1;
+const VAL_JAM = VAL_FRUIT + VAL_STONE + VAL_CRAFT1;
+const VAL_FIRE = VAL_STONE + VAL_WOOD + VAL_CRAFT1;
+const VAL_COPPER = VAL_STONE + VAL_STONE + VAL_CRAFT1;
+const VAL_GOLD = VAL_COPPER + VAL_COPPER + VAL_CRAFT2;
+const VAL_GAME = VAL_BEER + VAL_FIRE + VAL_CRAFT2;
+const VAL_MUSIC = VAL_BEER + VAL_JAM + VAL_CRAFT2;
+const VAL_SOULGEM = VAL_GEM + VAL_GEM + VAL_CRAFT3;
 
 const recipes: [ResourceType, number, ResourceType, ResourceType | null][] = [
-  ['beer', VALF + VALW + VAL2, 'fruit', 'wood'],
-  ['jam', VALF + VALS + VAL2, 'fruit', 'stone'],
-  ['fire', VALS + VALW + VAL2, 'stone', 'wood'],
+  ['beer', VAL_BEER, 'fruit', 'wood'],
+  ['jam', VAL_JAM, 'fruit', 'stone'],
+  ['fire', VAL_FIRE, 'stone', 'wood'],
+
+  ['game', VAL_GAME, 'beer', 'fire'],
+  ['acid', VAL_BEER + VAL_STONE + VAL_CRAFT2, 'beer', 'stone'],
+  ['pie', VAL_FRUIT + VAL_JAM + VAL_CRAFT2, 'fruit', 'jam'],
+
+  ['music', VAL_MUSIC, 'beer', 'jam'],
+
+  ['gamejam', VAL_GAME + VAL_JAM + VAL_CRAFT2, 'game', 'jam'],
+
+  ['copper', VAL_COPPER, 'stone', 'stone'],
+  ['gold', VAL_GOLD, 'copper', 'copper'],
+  ['ringa', VAL_GEM + VAL_GOLD + VAL_CRAFT2, 'gema', 'gold'],
+  ['ringb', VAL_GEM + VAL_GOLD + VAL_CRAFT2, 'gemb', 'gold'],
+
+  ['soulgem', VAL_SOULGEM, 'gema', 'gemb'],
+  ['soulmusic', VAL_SOULGEM + VAL_MUSIC + VAL_CRAFT3, 'soulgem', 'music'],
+
+  ['fruit', VAL_FRUIT, 'fruit', null],
+  ['wood', VAL_WOOD, 'wood', null],
+  ['stone', VAL_STONE, 'stone', null],
+
+  ['gema', VAL_GEM, 'gema', null],
+  ['gemb', VAL_GEM, 'gemb', null],
 
 
-  ['fruit', VALF, 'fruit', null],
-  ['wood', VALW, 'wood', null],
-  ['stone', VALS, 'stone', null],
-
-  ['gema', VALG, 'gema', null],
-  ['gemb', VALG, 'gemb', null],
 ];
 const RESOURCE_VALUE = {} as Record<ResourceType, number>;
 recipes.forEach(function (entry) {
@@ -2095,7 +2135,7 @@ tutorial_states = [
     },
   },
   {
-    msg: `Great!  It picked up and sold one Fruit, worth $${VALF}.\n\n` +
+    msg: `Great!  It picked up and sold one Fruit, worth $${VAL_FRUIT}.\n\n` +
       'It\'ll keep selling Fruit and earning money even when you\'re offline.',
     done: function () {
       return game_state.day_idx >= tut_temp + 3;

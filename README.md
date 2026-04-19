@@ -15,8 +15,6 @@ Start with: `npm start` (after running `npm i` once)
 TODO
 ====
 
-Additional recipes and resources
-
 Basic sounds + music
 
 Show finished state of games on room list - encourage user to resume a game that has been won but they haven't seen the victory for it yet (and save a high score when they do)
@@ -60,7 +58,7 @@ wood + stone = fire
 wood + ? = wood
 stone + ? = stone
 
-beer + fire = game
 game + jam = gamejam
+beer + fire = game
 beer + stone = acid
 jam + fruit = pie
