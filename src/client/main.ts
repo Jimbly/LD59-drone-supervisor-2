@@ -97,6 +97,8 @@ Z.UI = 200;
 Z.UIFLOATERS = 300;
 Z.TUT = 400;
 
+const RES_OFFS_DRONE = -6;
+const RES_OFFS_TILE = -2;
 
 const TICK_TIME = 1000;
 const MAX_PAYOUT_DAYS = 99;
@@ -2691,7 +2693,7 @@ function statePlay(dt: number): void {
           } else {
             autoAtlas('main', `resource-${sim_tile.contents}`).draw({
               x: xx * TILE_SIZE,
-              y: yy * TILE_SIZE,
+              y: yy * TILE_SIZE + RES_OFFS_TILE,
               z: zz + 0.1,
               w: TILE_SIZE,
               h: TILE_SIZE,
@@ -2714,7 +2716,7 @@ function statePlay(dt: number): void {
               } else {
                 autoAtlas('main', `resource-${content}`).draw({
                   x: x2 * TILE_SIZE,
-                  y: y2 * TILE_SIZE,
+                  y: y2 * TILE_SIZE + RES_OFFS_TILE,
                   z: zz + 0.1,
                   w: TILE_SIZE,
                   h: TILE_SIZE,
@@ -2794,7 +2796,7 @@ function statePlay(dt: number): void {
       } else {
         autoAtlas('main', `resource-${contents}`).draw({
           x: x * TILE_SIZE,
-          y: y * TILE_SIZE,
+          y: y * TILE_SIZE + RES_OFFS_DRONE,
           z: z + 0.1,
           w: TILE_SIZE,
           h: TILE_SIZE,
@@ -2818,12 +2820,14 @@ function statePlay(dt: number): void {
     let trans = transfers[ii];
     let [mode, res, x, y, to_x, to_y] = trans;
     let color: JSVec4 = [1,1,1,1];
+    let blend_v;
+    let offs0 = RES_OFFS_TILE;
+    let offs1 = RES_OFFS_TILE;
     if (mode === 'within' || mode === 'trash') {
       if (blend_within === 1) {
         continue;
       }
-      x = lerp(blend_within, x, to_x);
-      y = lerp(blend_within, y, to_y);
+      blend_v = blend_within;
       if (mode === 'trash') {
         v4set(color, 1 - blend_within, 1 - blend_within, 1 - blend_within, 1 - blend_within);
       }
@@ -2831,12 +2835,19 @@ function statePlay(dt: number): void {
       if (blend_within < 1 && (mode !== 'pickup' || isTransferTo(x, y))) {
         continue;
       }
-      x = lerp(blend_inout, x, to_x);
-      y = lerp(blend_inout, y, to_y);
+      blend_v = blend_inout;
+      if (mode === 'from') {
+        offs0 = RES_OFFS_DRONE;
+      } else {
+        offs1 = RES_OFFS_DRONE;
+      }
     }
+    x = lerp(blend_v, x, to_x);
+    y = lerp(blend_v, y, to_y);
+
     autoAtlas('main', `resource-${res}`).draw({
       x: x * TILE_SIZE,
-      y: y * TILE_SIZE,
+      y: y * TILE_SIZE + lerp(blend_v, offs0, offs1),
       z: z + 0.1,
       w: TILE_SIZE,
       h: TILE_SIZE,

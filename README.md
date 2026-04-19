@@ -61,6 +61,6 @@ wood + ? = wood
 stone + ? = stone
 
 beer + fire = game
+game + jam = gamejam
 beer + stone = acid
 jam + fruit = pie
-game + jam = LD
