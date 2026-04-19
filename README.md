@@ -15,7 +15,8 @@ Start with: `npm start` (after running `npm i` once)
 TODO
 ====
 
-Basic sounds + music
+tutorial: place second drone before rotate
+  describe waste more
 
 Show finished state of games on room list - encourage user to resume a game that has been won but they haven't seen the victory for it yet (and save a high score when they do)
   Also some progress - encourage joining games with players actively playing

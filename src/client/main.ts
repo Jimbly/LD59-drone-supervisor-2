@@ -84,6 +84,7 @@ import {
   palette,
   palette_font,
 } from './palette';
+import { SOUND_DATA } from './sound_data';
 import { getDisplayName, titleInit, titleReturn } from './title';
 
 const { abs, floor, random, max, min, sin, pow, sqrt, round } = Math;
@@ -104,6 +105,24 @@ const TICK_TIME = 1000;
 const MAX_PAYOUT_DAYS = 99;
 
 let font: Font;
+
+let no_sounds = false;
+export function playSound(sound_id: keyof typeof SOUND_DATA): void {
+  if (no_sounds) {
+    return;
+  }
+  playUISound(sound_id);
+}
+
+let seconds_per_tick = TICK_TIME; // really ms
+export function playSoundDelayed(sound_id: keyof typeof SOUND_DATA): void {
+  if (no_sounds) {
+    return;
+  }
+  setTimeout(function () {
+    playUISound(sound_id);
+  }, seconds_per_tick * 0.5);
+}
 
 export type Score = {
   revenue: number;
@@ -734,7 +753,7 @@ class SimState {
         ]);
         drone.gain_resource_tick = this.tick_id;
         --ticker.quantity;
-        // playUISound('pickup');
+        playSoundDelayed('pickup');
         if (!ticker.quantity) {
           break;
         }
@@ -769,7 +788,7 @@ class SimState {
             'base_sale',
             lerp(0.5, fromx, ticker.x + 1), lerp(0.5, fromy, ticker.y + 1) + ii * 0.05,
             `${resName(res)}: +$${resource_value}`);
-          // playUISound('sell');
+          playSound('base_sale');
         }
       }
     }
@@ -798,7 +817,7 @@ class SimState {
         ]);
         target_drone.contents = null;
         target_drone.gain_resource_tick = this.tick_id;
-        // playUISound('dropoff');
+        playSoundDelayed('dropoff');
       }
     }
   }
@@ -836,6 +855,7 @@ class SimState {
         ticker.multi_contents[0] = null;
       }
       ticker.multi_contents[0] = craftResult(inputs);
+      playSound('craft');
     }
 
     if (this.power <= 0) {
@@ -874,7 +894,7 @@ class SimState {
         ]);
         target_drone.contents = null;
         target_drone.gain_resource_tick = this.tick_id;
-        // playUISound('dropoff');
+        playSoundDelayed('dropoff');
       } else {
         assert(role === 'out');
         assert(!target_drone.contents);
@@ -887,7 +907,7 @@ class SimState {
           target_x, target_y
         ]);
         target_drone.gain_resource_tick = this.tick_id;
-        // playUISound('craft_pickup');
+        playSoundDelayed('craft_pickup');
       }
     }
   }
@@ -916,6 +936,7 @@ class SimState {
           target_x, target_y
         ]);
         target_drone.gain_resource_tick = this.tick_id;
+        playSoundDelayed('craft_pickup');
         break;
       }
     }
@@ -940,7 +961,7 @@ class SimState {
         ]);
         target_drone.contents = null;
         target_drone.gain_resource_tick = this.tick_id;
-        // playUISound('dropoff');
+        playSoundDelayed('dropoff');
       }
     }
   }
@@ -1100,6 +1121,9 @@ class SimState {
         if (!this.drone_moved) {
           break;
         }
+        if (zoomers_only) {
+          playSound('zoom');
+        }
         zoomers_only = true;
         for (let ii = 0; ii < this.drones.length; ++ii) {
           this.drones[ii].tick_id = -1;
@@ -1121,6 +1145,7 @@ class SimState {
                 drone.x, drone.y
               ]);
               drone.stopped = false;
+              playSoundDelayed('go');
             }
           }
         }
@@ -1413,10 +1438,12 @@ class GameState {
     if (this.revenue_cache) {
       return;
     }
+    no_sounds = true;
     let ss = new SimState(this, null);
     while (ss.power >= -1) {
       ss.tick();
     }
+    no_sounds = false;
     this.revenue_cache = ss.player_money_earned;
   }
   totalRevenue(): number {
@@ -1502,12 +1529,13 @@ class GameState {
       !tutorial_states[this.tutorial_state].buy_validate ||
       !tutorial_states[this.tutorial_state].buy_validate!(x, y, tile_type, rot)
     )) {
-      // playUISound('place_error');
+      playSound('place_error');
       this.float('error', x, y, 'Invalid (please follow directions)');
       return;
     }
     if (!inZone(this.player_zones[this.my_player_idx], x, y)) {
       this.float('error', x, y, 'Out of bounds');
+      playSound('place_error');
       return;
     }
     let tile = this.map[y][x];
@@ -1526,25 +1554,25 @@ class GameState {
         }
         dmoney = this.costOf(old_type, 1);
         this.sim_state.updateMapEdit(x, y);
-        // sound_manager.play('drone/sell');
+        playSound('sell');
       }
     } else {
       if (tile && tile.type === tile_type) {
         // just rotate
         tile.rot = ((tile.rot || 0) + 1) % (MAX_ROT[tile.type] || 1);
-        // sound_manager.play('drone/place_rotate');
+        playSound('place_rotate');
         this.sim_state.updateMapEdit(x, y);
         diff = true;
       } else {
         assert(!tile);
         dmoney = -this.costOf(tile_type, 1);
         if (-dmoney > this.me().money) {
-          // sound_manager.play('drone/place_error');
           this.float('error', x, y, `Cannot afford $${-dmoney}`);
+          playSound('place_error');
           dmoney = 0;
         } else {
           // place new tile(s)
-          // sound_manager.play('drone/place_good');
+          playSound('place_good');
           let size = TILE_TYPE_SIZE[tile_type] || 1;
           for (let jj = 0; jj < size; ++jj) {
             for (let ii = 0; ii < size; ++ii) {
@@ -2029,7 +2057,7 @@ function buildMode(): void {
 
     let mouse_up;
     if ((mouse_up = mouseUpEdge())) {
-      playUISound('button_click');
+      // playSound('button_click');
       if (mouse_up.button === 1) {
         if (hover_cell) {
           for (let ii = 0; ii < TOOLS.length; ++ii) {
@@ -2053,6 +2081,7 @@ function buildMode(): void {
           game_state.buyTile(hover_cell_x, hover_cell_y, null, 0);
         } else {
           game_state.float('error', x, y, 'Nothing to sell here');
+          playSound('place_error');
         }
       } else {
         // place it!
@@ -2080,6 +2109,7 @@ function buildMode(): void {
           });
         } else {
           game_state.float('error', x, y, 'Placement blocked');
+          playSound('place_error');
         }
       }
     }
@@ -2557,8 +2587,10 @@ let counter = 0;
 function statePlay(dt: number): void {
   let dt_orig = dt;
   let eff_is_ff = is_ff; //  || keyDown(KEYS.SHIFT);
+  seconds_per_tick = TICK_TIME;
   if (eff_is_ff) {
     dt *= 5;
+    seconds_per_tick /= 5;
   }
   counter += dt;
   if (!game_state.sim_state.drones.length && !game_state.me().max_revenue) {
@@ -3020,6 +3052,7 @@ export function main(): void {
       buttonselected_disabled: { atlas: 'pixely', name: 'button_disabled' },
     },
     pixel_perfect,
+    ui_sounds: SOUND_DATA,
   })) {
     return;
   }
