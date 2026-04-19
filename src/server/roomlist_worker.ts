@@ -48,18 +48,33 @@ RoomListWorker.registerLoggedInClientHandler('list_get', function (
   resp_func: NetResponseCallback<RoomListResponse>
 ): void {
   let { user_id } = src;
-  let rooms = this.getChannelData<TSMap<RoomRecord>>('rooms', {});
+  let rooms = this.getChannelData<TSMap<RoomRecord>>('private.rooms', {});
 
   let my_rooms = [];
   let open_rooms = [];
   let open_count: Record<number, number> = {};
-  for (let key in rooms) {
+  let keys = Object.keys(rooms);
+  keys.reverse();
+
+  for (let jj = 0; jj < keys.length; ++jj) {
+    let key = keys[jj];
     let entry = rooms[key]!;
     entry.room_id = key; // fix up old data
     if (entry.players.includes(user_id)) {
       my_rooms.push(entry);
     } else {
-      if (entry.players.length < entry.num_players) {
+      let any_good = false;
+      for (let ii = 0; ii < entry.players.length; ++ii) {
+        let uid = entry.players[ii];
+        if (uid && !uid.startsWith('left:')) {
+          any_good = true;
+        }
+      }
+      if (!any_good) {
+        // clean up
+        this.setChannelData(`private.rooms.${key}`, undefined);
+      }
+      if (any_good && entry.players.length < entry.num_players) {
         let c = open_count[entry.level_idx] = (open_count[entry.level_idx] || 0) + 1;
         if (c < 4) {
           open_rooms.push(entry);
@@ -82,7 +97,7 @@ RoomListWorker.registerLoggedInClientHandler('room_alloc', function (
   assert(data);
   assert.equal(typeof data.num_players, 'number');
   assert.equal(typeof data.level_idx, 'number');
-  let rooms = this.getChannelData<TSMap<RoomRecord>>('rooms', {});
+  let rooms = this.getChannelData<TSMap<RoomRecord>>('private.rooms', {});
 
   let room_id;
   let len = 4;
@@ -96,7 +111,7 @@ RoomListWorker.registerLoggedInClientHandler('room_alloc', function (
     players: [src.user_id],
     num_players: data.num_players,
   };
-  this.setChannelData(`rooms.${room_id}`, roomrec);
+  this.setChannelData(`private.rooms.${room_id}`, roomrec);
 
   resp_func(null, {
     room_id,
@@ -113,14 +128,14 @@ RoomListWorker.registerLoggedInClientHandler('room_join', function (
   assert(room_id);
   assert.equal(typeof room_id, 'string');
   assert(room_id.match(/^[0-9A-Z]+$/));
-  let room = this.getChannelData<RoomRecord | null>(`rooms.${room_id}`, null);
+  let room = this.getChannelData<RoomRecord | null>(`private.rooms.${room_id}`, null);
   assert(room);
   if (room.players.length >= room.num_players) {
     return resp_func('ERR_ROOM_FULL');
   }
   let player_idx = room.players.length;
   room.players.push(src.user_id);
-  this.setChannelData(`rooms.${room_id}.players`, room.players);
+  this.setChannelData(`private.rooms.${room_id}.players`, room.players);
   this.sendChannelMessage<UserJoinParam>(`multiplayer.${room_id}`, 'user_join', {
     player_idx,
     user_id: src.user_id,
@@ -145,14 +160,14 @@ RoomListWorker.registerLoggedInClientHandler('forget', function (
   assert(room_id);
   assert.equal(typeof room_id, 'string');
   assert(room_id.match(/^[0-9A-Z]+$/));
-  let room = this.getChannelData<RoomRecord | null>(`rooms.${room_id}`, null);
+  let room = this.getChannelData<RoomRecord | null>(`private.rooms.${room_id}`, null);
   assert(room);
   let player_idx = room.players.indexOf(user_id);
   if (player_idx === -1) {
     return resp_func('ERR_NOT_IN_ROOM');
   }
   room.players[player_idx] = `left:${user_id}`;
-  this.setChannelData(`rooms.${room_id}.players.${player_idx}`, room.players[player_idx]);
+  this.setChannelData(`private.rooms.${room_id}.players.${player_idx}`, room.players[player_idx]);
   resp_func();
   // this.sendChannelMessage<UserJoinParam>(`multiplayer.${room_id}`, 'user_leave', {
   //   player_idx,

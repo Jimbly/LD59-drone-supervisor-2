@@ -465,7 +465,7 @@ function stateTitle(dt: number): void {
 
     font.draw({
       x, y, z,
-      text: `${ld.name} ${entry.players.length}/${entry.num_players}P`,
+      text: `${ld.name} ${entry.players.length}/${entry.num_players}P (${entry.room_id})`,
     });
     y += text_height;
     let players = entry.players;

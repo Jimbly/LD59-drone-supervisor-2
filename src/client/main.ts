@@ -1318,17 +1318,36 @@ class GameState {
     assert.equal(ser.ld_idx, this.ld_idx);
     this.game_start_time = ser.game_start_time;
     this.tutorial_state = ser.tut;
+    let drone_pos: Record<string, MapEntry> = {};
     for (let jj = 0; jj < h; ++jj) {
       for (let ii = 0; ii < w; ++ii) {
         let elem = ser.map[jj][ii];
         map[jj][ii] = elem ? clone(elem!) : undefined;
+        if (elem && elem.type === 'spawner') {
+          drone_pos[`${ii},${jj}`] = elem;
+        }
       }
     }
     for (let ii = 0; ii < ser.players.length; ++ii) {
       this.players[ii] = clone(ser.players[ii]);
     }
 
-    if (!dynamic) {
+    if (dynamic) {
+      // just spawn missing drones, it triggers other logic to start going
+      let { drones } = this.sim_state;
+      for (let ii = 0; ii < drones.length; ++ii) {
+        let drone = drones[ii];
+        let key = `${drone.orig_x},${drone.orig_y}`;
+        delete drone_pos[key];
+      }
+
+      for (let key in drone_pos) {
+        let [x, y] = key.split(',').map(Number);
+        let cell = this.map[y][x];
+        assert(cell && cell.type === 'spawner');
+        this.sim_state.insertFromCell(cell, x, y);
+      }
+    } else {
       this.resetDay();
     }
   }
