@@ -203,7 +203,7 @@ const level_defs: LevelDef[] = [{
   starting_power: 9,
   starting_money: 600,
   seed: 2345,
-  goal: 800,
+  goal: 1000,
   resources: {
     wood: 3,
     stone: 3,
@@ -1392,7 +1392,7 @@ class GameState {
   }
 
   score(): Score {
-    let revenue = min(this.totalRevenue(), this.ld.goal);
+    let revenue = this.totalRevenue();
     let networth = this.calcNetWorth(true);
     let days = floor((walltime.now() - this.game_start_time) / this.payoutTime());
     return {
@@ -1694,7 +1694,7 @@ function drawHUD(eff_is_ff: boolean): void {
         y: y + 2 + FONT_HEIGHT,
         align: ALIGN.HCENTER | ALIGN.HWRAP,
         text: 'Goal complete!  You can now return to the Main Menu and start a new game,' +
-          ' or stick around, experiment, and optimize for a smaller Build Cost.',
+          ' or stick around, experiment, and optimize for more revenue!',
       });
     }
   }

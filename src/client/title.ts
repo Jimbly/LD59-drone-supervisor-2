@@ -65,7 +65,8 @@ const style_me = fontStyleColored(null, palette_font[PAL_BLACK]);
 const style_header = fontStyleColored(null, palette_font[3]);
 let goal_revenue = 0;
 function myScoreToRow(row: unknown[], score: Score): void {
-  row.push(score.revenue === goal_revenue ? 'WON' : `$${score.revenue}`, `$${score.networth}`); //, score.days);
+  // eslint-disable-next-line prefer-template
+  row.push(`$${score.revenue}` + (score.revenue >= goal_revenue ? ' *' : ''), `$${score.networth}`); //, score.days);
 }
 
 
