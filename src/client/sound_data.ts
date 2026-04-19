@@ -17,6 +17,7 @@ export const SOUND_DATA = {
   sell: ['synth1down1', 'synth1down2', 'synth1down3'],
 
   // low
+  trash: ['err'],
   pickup: ['1up1', '1up2'],
   dropoff: ['1down1', '1down2', '1down3'],
   // med

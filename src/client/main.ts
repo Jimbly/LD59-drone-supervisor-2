@@ -107,6 +107,7 @@ const MAX_PAYOUT_DAYS = 99;
 let font: Font;
 
 let no_sounds = false;
+let sound_rect: JSVec4;
 export function playSound(sound_id: keyof typeof SOUND_DATA): void {
   if (no_sounds) {
     return;
@@ -114,13 +115,22 @@ export function playSound(sound_id: keyof typeof SOUND_DATA): void {
   playUISound(sound_id);
 }
 
+export function playSoundPos(x: number, y: number, sound_id: keyof typeof SOUND_DATA): void {
+  if (no_sounds) {
+    return;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-use-before-define
+  let volume = inZone(sound_rect, x, y) ? 1 : 0.125;
+  playUISound(sound_id, volume);
+}
+
 let seconds_per_tick = TICK_TIME; // really ms
-export function playSoundDelayed(sound_id: keyof typeof SOUND_DATA): void {
+export function playSoundDelayed(x: number, y: number, sound_id: keyof typeof SOUND_DATA): void {
   if (no_sounds) {
     return;
   }
   setTimeout(function () {
-    playUISound(sound_id);
+    playSoundPos(x, y, sound_id);
   }, seconds_per_tick * 0.5);
 }
 
@@ -753,7 +763,7 @@ class SimState {
         ]);
         drone.gain_resource_tick = this.tick_id;
         --ticker.quantity;
-        playSoundDelayed('pickup');
+        playSoundDelayed(drone.x, drone.y, 'pickup');
         if (!ticker.quantity) {
           break;
         }
@@ -788,7 +798,7 @@ class SimState {
             'base_sale',
             lerp(0.5, fromx, ticker.x + 1), lerp(0.5, fromy, ticker.y + 1) + ii * 0.05,
             `${resName(res)}: +$${resource_value}`);
-          playSound('base_sale');
+          playSoundPos(ticker.x, ticker.y, 'base_sale');
         }
       }
     }
@@ -817,7 +827,7 @@ class SimState {
         ]);
         target_drone.contents = null;
         target_drone.gain_resource_tick = this.tick_id;
-        playSoundDelayed('dropoff');
+        playSoundDelayed(target_drone.x, target_drone.y, 'dropoff');
       }
     }
   }
@@ -853,9 +863,11 @@ class SimState {
           ticker.x + craft_contents_coords[trash_pos][0], ticker.y + craft_contents_coords[trash_pos][1]
         ]);
         ticker.multi_contents[0] = null;
+        playSoundPos(ticker.x, ticker.y, 'trash');
+      } else {
+        playSoundPos(ticker.x, ticker.y, 'craft');
       }
       ticker.multi_contents[0] = craftResult(inputs);
-      playSound('craft');
     }
 
     if (this.power <= 0) {
@@ -894,7 +906,7 @@ class SimState {
         ]);
         target_drone.contents = null;
         target_drone.gain_resource_tick = this.tick_id;
-        playSoundDelayed('dropoff');
+        playSoundDelayed(target_drone.x, target_drone.y, 'dropoff');
       } else {
         assert(role === 'out');
         assert(!target_drone.contents);
@@ -907,7 +919,7 @@ class SimState {
           target_x, target_y
         ]);
         target_drone.gain_resource_tick = this.tick_id;
-        playSoundDelayed('craft_pickup');
+        playSoundDelayed(target_drone.x, target_drone.y, 'craft_pickup');
       }
     }
   }
@@ -936,7 +948,7 @@ class SimState {
           target_x, target_y
         ]);
         target_drone.gain_resource_tick = this.tick_id;
-        playSoundDelayed('craft_pickup');
+        playSoundDelayed(target_drone.x, target_drone.y, 'craft_pickup');
         break;
       }
     }
@@ -961,7 +973,7 @@ class SimState {
         ]);
         target_drone.contents = null;
         target_drone.gain_resource_tick = this.tick_id;
-        playSoundDelayed('dropoff');
+        playSoundDelayed(target_drone.x, target_drone.y, 'dropoff');
       }
     }
   }
@@ -1008,7 +1020,7 @@ class SimState {
     }
   }
 
-  drone_moved = false;
+  drone_moved = 0; // 1 = yes; 2 = in my zone
   tryMove(drone: Drone, zoomers_only: boolean, signals: { x: number; y: number }[]): boolean {
     let cur_zone = this.parent.playerIdxFromPos(drone.x, drone.y);
     let x = drone.x + DX[drone.rot];
@@ -1039,7 +1051,8 @@ class SimState {
     this.drone_map[drone.y][drone.x] = undefined;
     drone.x = x;
     drone.y = y;
-    this.drone_moved = true;
+    let drone_moved = cur_zone === this.parent.my_player_idx ? 2 : 1;
+    this.drone_moved = max(this.drone_moved, drone_moved);
     this.drone_map[drone.y][drone.x] = drone;
 
     if (target_tile) {
@@ -1111,7 +1124,7 @@ class SimState {
       let zoomers_only = false;
       while (true) {
         this.clearBusy();
-        this.drone_moved = false;
+        this.drone_moved = 0;
         for (let ii = 0; ii < this.drones.length; ++ii) {
           this.tickDroneEarly(this.drones[ii], zoomers_only);
         }
@@ -1122,7 +1135,11 @@ class SimState {
           break;
         }
         if (zoomers_only) {
-          playSound('zoom');
+          if (this.drone_moved === 2) {
+            playSound('zoom');
+          } else {
+            playSoundPos(-1, -1, 'zoom');
+          }
         }
         zoomers_only = true;
         for (let ii = 0; ii < this.drones.length; ++ii) {
@@ -1145,7 +1162,7 @@ class SimState {
                 drone.x, drone.y
               ]);
               drone.stopped = false;
-              playSoundDelayed('go');
+              playSoundDelayed(drone.x, drone.y, 'go');
             }
           }
         }
@@ -2174,7 +2191,19 @@ tutorial_states = [
   {
     msg:
       'Now we have more money to spend!\n\n' +
-      'Let\'s harvest the Stone too, this will require changing the direction of a Drone with a Turn Signal.\n\n' +
+      'Let\'s harvest the Stone too, start by putting a Drone facing left here.',
+    indicator: { x: 7, y: 1 },
+    buy_validate: function (x, y, tile_type, dir) {
+      return x === 7 && y === 1 && tile_type === 'spawner';
+    },
+    done: function () {
+      return game_state.map[1][7] && game_state.map[1][7].type === 'spawner' &&
+        game_state.map[1][7].rot === 3;
+    },
+  },
+  {
+    msg:
+      'Getting to the base will require changing the direction of a Drone with a Turn Signal.\n\n' +
       'Select the Turn Signal tool.',
     indicator_name: 'buy_rotate',
     done: function () {
@@ -2191,17 +2220,6 @@ tutorial_states = [
     done: function () {
       return game_state.map[1][6] && game_state.map[1][6].type === 'rotate' &&
         game_state.map[1][6].rot === 1;
-    },
-  },
-  {
-    msg: 'Great!\n\nNow, a Drone facing left here.',
-    indicator: { x: 7, y: 1 },
-    buy_validate: function (x, y, tile_type, dir) {
-      return x === 7 && y === 1 && tile_type === 'spawner';
-    },
-    done: function () {
-      return game_state.map[1][7] && game_state.map[1][7].type === 'spawner' &&
-        game_state.map[1][7].rot === 3;
     },
   },
   {
@@ -2322,7 +2340,8 @@ tutorial_states = [
   },
   {
     msg: 'Because the right Drone is depositing the Stone a step before the left Drone is depositing Fruit,' +
-      ' the Crafter isn\'t doing anything useful!\n\nLet\'s fix this with a Signal!',
+      ' the Crafter is wasting the first Stone resource and not doing anything' +
+      ' useful!\n\nLet\'s fix this with a Signal!',
     indicator_name: 'buy_signal-stop',
     done: function () {
       return TOOLS[selected_tool]?.type === 'signal-stop';
@@ -2592,6 +2611,7 @@ function statePlay(dt: number): void {
     dt *= 5;
     seconds_per_tick /= 5;
   }
+  sound_rect = game_state.player_zones[game_state.my_player_idx];
   counter += dt;
   if (!game_state.sim_state.drones.length && !game_state.me().max_revenue) {
     counter = TICK_TIME - 1;
