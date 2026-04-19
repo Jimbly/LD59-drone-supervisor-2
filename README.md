@@ -15,12 +15,9 @@ Start with: `npm start` (after running `npm i` once)
 TODO
 ====
 
-Questions:
-* Can we upgrade day length?  If not, then we need faster locomotion / cannons, or longer days and a way to skip
-* Either is probably fine for MP, other people's drones just run out of power sooner
-
 Additional recipes and resources (unique colored gems - spawn in half/quandrant near other players!)
 
+offline time pay out logarithmically
 floaters look bad when two drones sell 2 things on the same frame, add an offset
 Show finished state of games on room list - encourage user to resume a game that has been won but they haven't seen the victory for it yet (and save a high score when they do)
   Also some progress - encourage joining games with players actively playing

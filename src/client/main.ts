@@ -5,7 +5,7 @@ local_storage.setStoragePrefix('ld59'); // Before requiring anything else that m
 
 // Virtual viewport for our game logic
 export const game_width = 384;
-export const game_height = 256;
+export const game_height = 256+6;
 export const TILE_SIZE = 15;
 export const FONT_HEIGHT = 8;
 export const BUTTON_HEIGHT = TILE_SIZE + 4;
@@ -313,7 +313,8 @@ const ROT_TO_DIR = [
 const DX = [0, 1, 0, -1];
 const DY = [-1, 0, 1, 0];
 
-type CellType = 'base' | 'craft' | 'resource' | 'spawner' | 'rotate' | 'signal-stop' | 'signal-go' | 'storage' | 'sign';
+type CellType = 'base' | 'craft' | 'resource' | 'spawner' | 'rotate' | 'signal-stop' |
+  'signal-go' | 'signal-zoom' | 'storage' | 'sign';
 const TILE_TYPE_SIZE: Partial<Record<CellType, number>> = {
   base: 3,
   craft: 2,
@@ -369,6 +370,7 @@ type Drone = {
   tick_id: number;
   thinking: boolean;
   stopped: boolean;
+  is_zooming: boolean;
   uid: number;
   gain_resource_tick?: number;
 };
@@ -380,6 +382,7 @@ const COST_TABLE: Partial<Record<CellType, JSVec2>> = {
   craft: [1000, 500],
   'signal-stop': [20, 10],
   'signal-go': [20, 10],
+  'signal-zoom': [300, 900],
   sign: [100, 75],
 };
 
@@ -579,6 +582,7 @@ class SimState {
         tick_id: 0,
         thinking: false,
         stopped: false,
+        is_zooming: false,
         uid: ++this.last_uid,
       };
       this.drones.push(drone);
@@ -887,12 +891,8 @@ class SimState {
         assert(false);
     }
   }
-  tickDroneEarly(drone: Drone): void {
-    drone.last_rot = drone.rot;
-    drone.last_x = drone.x;
-    drone.last_y = drone.y;
-    drone.last_contents = drone.contents;
-    if (drone.stopped) {
+  tickDroneEarly(drone: Drone, zoomers_only: boolean): void {
+    if (drone.stopped || !drone.is_zooming && zoomers_only) {
       return;
     }
 
@@ -916,7 +916,8 @@ class SimState {
     }
   }
 
-  tryMove(drone: Drone, signals: { x: number; y: number }[]): boolean {
+  drone_moved = false;
+  tryMove(drone: Drone, zoomers_only: boolean, signals: { x: number; y: number }[]): boolean {
     let cur_zone = this.parent.playerIdxFromPos(drone.x, drone.y);
     let x = drone.x + DX[drone.rot];
     let y = drone.y + DY[drone.rot];
@@ -936,7 +937,7 @@ class SimState {
     }
     let other_drone = this.drone_map[y][x];
     if (other_drone && other_drone.tick_id !== this.tick_id) {
-      this.tickDroneActual(other_drone, signals);
+      this.tickDroneActual(other_drone, zoomers_only, signals);
       other_drone = this.drone_map[y][x];
     }
     if (other_drone && !other_drone.thinking) {
@@ -946,22 +947,28 @@ class SimState {
     this.drone_map[drone.y][drone.x] = undefined;
     drone.x = x;
     drone.y = y;
+    this.drone_moved = true;
     this.drone_map[drone.y][drone.x] = drone;
 
-    if (target_tile && target_tile.type === 'signal-stop') {
-      drone.stopped = true;
+    if (target_tile) {
+      if (target_tile.type === 'signal-stop') {
+        drone.stopped = true;
+      }
+      if (target_tile.type !== 'spawner') {
+        drone.is_zooming = false;
+      }
     }
 
     return true;
   }
 
-  tickDroneActual(drone: Drone, signals: { x: number; y: number }[]): void {
-    if (drone.tick_id === this.tick_id) {
+  tickDroneActual(drone: Drone, zoomers_only: boolean, signals: { x: number; y: number }[]): void {
+    if (drone.tick_id === this.tick_id || !drone.is_zooming && zoomers_only) {
       return;
     }
     drone.tick_id = this.tick_id;
     drone.thinking = true;
-    this.tryMove(drone, signals);
+    this.tryMove(drone, zoomers_only, signals);
     let tile = this.parent.map[drone.y][drone.x];
     if (tile) {
       if (tile.type === 'rotate') {
@@ -973,6 +980,28 @@ class SimState {
     drone.thinking = false;
   }
 
+  markZoomers(): void {
+    let { map } = this.parent;
+    for (let ii = 0; ii < this.drones.length; ++ii) {
+      let drone = this.drones[ii];
+      let cell = map[drone.y][drone.x];
+      drone.is_zooming = Boolean(cell && cell.type === 'signal-zoom');
+
+      drone.last_rot = drone.rot;
+      drone.last_x = drone.x;
+      drone.last_y = drone.y;
+      drone.last_contents = drone.contents;
+    }
+  }
+
+  clearBusy(): void {
+    for (let jj = 0; jj < this.parent.h; ++jj) {
+      for (let ii = 0; ii < this.parent.w; ++ii) {
+        this.busy[jj][ii] = 0;
+      }
+    }
+  }
+
   tick_id = 0;
   isDay0(): boolean {
     return !this.tick_id;
@@ -982,19 +1011,30 @@ class SimState {
     ++this.tick_id;
     this.transfers.length = 0;
     this.activated_signals.length = 0;
-    for (let jj = 0; jj < this.parent.h; ++jj) {
-      for (let ii = 0; ii < this.parent.w; ++ii) {
-        this.busy[jj][ii] = 0;
-      }
-    }
-    for (let ii = 0; ii < this.drones.length; ++ii) {
-      this.tickDroneEarly(this.drones[ii]);
-    }
+    this.markZoomers();
     if (this.power > 0) {
+
       let signals: { x: number; y: number }[] = [];
-      for (let ii = 0; ii < this.drones.length; ++ii) {
-        this.tickDroneActual(this.drones[ii], signals);
+
+      let zoomers_only = false;
+      while (true) {
+        this.clearBusy();
+        this.drone_moved = false;
+        for (let ii = 0; ii < this.drones.length; ++ii) {
+          this.tickDroneEarly(this.drones[ii], zoomers_only);
+        }
+        for (let ii = 0; ii < this.drones.length; ++ii) {
+          this.tickDroneActual(this.drones[ii], zoomers_only, signals);
+        }
+        if (!this.drone_moved) {
+          break;
+        }
+        zoomers_only = true;
+        for (let ii = 0; ii < this.drones.length; ++ii) {
+          this.drones[ii].tick_id = -1;
+        }
       }
+
       for (let ii = 0; ii < this.drones.length; ++ii) {
         let drone = this.drones[ii];
         if (drone.stopped) {
@@ -1526,6 +1566,10 @@ const TOOLS: Tool[] = [{
   type: 'signal-go',
   tooltip: `Go Signal\n\nSignals all stopped drones within ${SIGNAL_DIST} spaces in each direction to go.`,
 }, {
+  icon: 'signal-zoom',
+  type: 'signal-zoom',
+  tooltip: 'Zoom Signal\n\nSignals a drone to go at maximum speed when leaving.',
+}, {
   icon: 'sign',
   type: 'sign',
   tooltip: 'Sign(al)\n\nAllows leaving messages for yourself or your neighbors.',
@@ -1623,8 +1667,9 @@ function drawHUD(eff_is_ff: boolean): void {
         selected_rot = selected_tool === 0 ? 2 : 0;
       }
     }
-    y += BUTTON_HEIGHT + TOOL_PAD;
+    y += BUTTON_HEIGHT + 2;
   }
+  y += 3;
 
   let net_worth = game_state.calcNetWorth(true);
   let money = game_state.me().money;
@@ -1632,7 +1677,7 @@ function drawHUD(eff_is_ff: boolean): void {
     style: style_text,
     x, y, z, w,
     align: ALIGN.HWRAP | ALIGN.HCENTER,
-    text: `Money:\n$${money}\n\nRevenue:\n$${game_state.calcValue()}` +
+    text: `Money:\n$${money}\n\nRevenue:\n$${game_state.calcValue()}/day` +
       `${net_worth ? `\n\nBuilt:\n$${net_worth}` : ''}`,
   });
   const PANEL_PAD = 4;
