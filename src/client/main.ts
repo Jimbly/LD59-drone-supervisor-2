@@ -715,15 +715,17 @@ class SimState {
           this.player_money_earned[player_idx] += resource_value;
           ticker.multi_contents[ii] = null;
 
+          let fromx = ticker.x + base_contents_coords[ii][0];
+          let fromy = ticker.y + base_contents_coords[ii][1];
           this.transfers.push([
             'within', res,
-            ticker.x + base_contents_coords[ii][0], ticker.y + base_contents_coords[ii][1],
+            fromx, fromy,
             ticker.x + 1, ticker.y + 1,
           ]);
 
           this.float?.(
             'base_sale',
-            ticker.x + 1, ticker.y + 1,
+            lerp(0.5, fromx, ticker.x + 1), lerp(0.5, fromy, ticker.y + 1) + ii * 0.05,
             `${resName(res)}: +$${resource_value}`);
           // playUISound('sell');
         }
