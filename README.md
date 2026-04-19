@@ -15,7 +15,6 @@ Start with: `npm start` (after running `npm i` once)
 TODO
 ====
 
-Tutorial game (single-player, but still on server)
 Multiplayer logic
   goal: total revenue / day
 High scores (minimum total net worth to meet revenue goal, fewest day ticks secondary)
@@ -29,6 +28,7 @@ Additional recipes and resources (unique colored gems)
 
 Show recipes somewhere (just open a recipe book overlay?  tooltip on each resource?)
 
+floaters look bad when two drones sell 2 things on the same frame, add an offset
 Issue with a 2/4P game that you left showing up at top of list
 Show finished state of games on room list - encourage user to resume a game that has been won but they haven't seen the victory for it yet (and save a high score when they do)
 

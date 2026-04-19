@@ -385,7 +385,7 @@ function stateTitle(dt: number): void {
     }
     x += button_w + 4;
 
-    if (button({
+    if (ii !== 0 && button({
       ...button_param,
       x, y,
       text: 'Scores',

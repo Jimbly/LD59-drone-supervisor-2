@@ -20,9 +20,11 @@ import {
   drag,
   keyDown,
   KEYS,
+  keyUpEdge,
   mousePos,
   mouseUpEdge,
 } from 'glov/client/input';
+import { markdownAuto } from 'glov/client/markdown';
 import { ClientChannelWorker, netInit } from 'glov/client/net';
 import { socialInit } from 'glov/client/social';
 import { spriteSetGet } from 'glov/client/sprite_sets';
@@ -112,7 +114,7 @@ const style_text = fontStyleColored(null, palette_font[PAL_BLACK]);
 
 const style_day_end = style_base_money;
 
-const SIGNAL_DIST = 3;
+const SIGNAL_DIST = 4;
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const RESOURCES = [
@@ -150,7 +152,7 @@ const level_defs: LevelDef[] = [{
   starting_power: 7,
   starting_money: 600,
   seed: 7,
-  goal: 245,
+  goal: 300,
   resources: {
     wood: 0,
     stone: 0,
@@ -335,7 +337,7 @@ function cmpTickable(a: SimMapEntry, b: SimMapEntry): number {
 const VALF = 65;
 const VALW = 80;
 const VALS = 100;
-const VAL2 = 100;
+const VAL2 = 135;
 
 const recipes: [ResourceType, number, ResourceType, ResourceType | null][] = [
   ['beer', VALF + VALW + VAL2, 'fruit', 'wood'],
@@ -1034,7 +1036,7 @@ class GameState {
         type: 'resource',
         resource: 'fruit',
       };
-      this.map[1][6] = {
+      this.map[0][6] = {
         type: 'resource',
         resource: 'stone',
       };
@@ -1095,7 +1097,11 @@ class GameState {
     return this.players[this.my_player_idx];
   }
 
+  day_idx = 0;
+  last_money_earned = 0;
   resetDay(): void {
+    ++this.day_idx; // just for tutorials
+    this.last_money_earned = this.sim_state && this.sim_state.money_earned || 0;
     this.sim_state = new SimState(this, this.float.bind(this));
   }
   skipRevenue(): void {
@@ -1367,7 +1373,7 @@ let is_ff = false;
 function drawHUD(eff_is_ff: boolean): void {
   let y = camera2d.y0();
   let max_power = game_state.maxPower();
-  if (game_state.sim_state.drones.length) {
+  if (!game_state.tutorial_state || game_state.tutorial_state >= 4) {
     font.draw({
       style: style_floater,
       x: 0, w: game_width,
@@ -1375,6 +1381,8 @@ function drawHUD(eff_is_ff: boolean): void {
       align: ALIGN.HCENTER | ALIGN.HWRAP,
       text: `Revenue: $${game_state.calcValue()}/day of $${level_defs[game_state.ld_idx].goal}/day Goal`,
     });
+  }
+  if (game_state.sim_state.drones.length) {
     font.draw({
       style: style_floater,
       x: 0, w: game_width,
@@ -1400,7 +1408,7 @@ function drawHUD(eff_is_ff: boolean): void {
       icon = cellFrame(tool.type, selected_rot);
       icon = icon.replace('spawner', 'drone');
     }
-    indicator_pos[`buy_${tool.type}`] = { x: x + BUTTON_HEIGHT / 2, y: y + BUTTON_HEIGHT - 4 };
+    indicator_pos[`buy_${tool.type || 'sell'}`] = { x: x + BUTTON_HEIGHT / 2, y: y + BUTTON_HEIGHT / 2 };
 
     if (button({
       x, y, z, h: BUTTON_HEIGHT,
@@ -1435,6 +1443,7 @@ function drawHUD(eff_is_ff: boolean): void {
   y = camera2d.y1() - BUTTON_HEIGHT - TOOL_PAD;
   function gamebutton(icon: string, tooltip: string, hotkey: number): ButtonRet | null {
     x -= BUTTON_HEIGHT + TOOL_PAD;
+    indicator_pos[icon] = { x: x + BUTTON_HEIGHT / 2, y: y + BUTTON_HEIGHT / 2 };
     return buttonImage({
       x, y, w: BUTTON_HEIGHT, h: BUTTON_HEIGHT,
       img: autoAtlas('main', icon),
@@ -1486,7 +1495,7 @@ function buildMode(): void {
     return;
   }
 
-  let tool = TOOLS[selected_tool] || null;
+  let tool = (TOOLS[selected_tool] || null) as Tool | null;
   let tool_type = tool?.type || null;
   let tool_w = tool_type && TILE_TYPE_SIZE[tool_type] || 1;
   let can_place = true;
@@ -1531,7 +1540,7 @@ function buildMode(): void {
     can_place = false;
   }
 
-  let is_selling = tool && !tool_type;
+  let is_selling = tool && !tool_type || keyDown(KEYS.SHIFT);
 
   if (hover_cell && hover_cell.type === 'signal-go' || tool_type === 'signal-go' && can_place) {
     for (let jj = -SIGNAL_DIST; jj <= SIGNAL_DIST; ++jj) {
@@ -1552,12 +1561,12 @@ function buildMode(): void {
     can_place = Boolean(hover_cell && COST_TABLE[hover_cell.type]);
   }
 
-  if (tool && tool.type || tool && is_selling) {
+  if (tool && tool.type || tool && is_selling || can_rotate && hover_cell) {
     let color: JSVec4 | Vec4 = (can_place || can_rotate) ? [1, 1, 1, 0.5] : [1, 0, 0, 0.5];
     let eff_rot = selected_rot;
     let eff_x = x;
     let eff_y = y;
-    let eff_type = tool.type;
+    let eff_type = tool?.type;
     let eff_w = tool_w;
     if (can_rotate && hover_cell) {
       eff_rot = hover_cell.rot || 0;
@@ -1619,9 +1628,10 @@ function buildMode(): void {
       } else {
         // place it!
         if (can_rotate) {
-          game_state.buyTile(hover_cell_x, hover_cell_y, eff_type, eff_rot);
+          game_state.buyTile(hover_cell_x, hover_cell_y, eff_type!, eff_rot);
           selected_rot = hover_cell!.rot || 0;
         } else if (can_place) {
+          assert(tool);
           game_state.buyTile(x, y, tool.type, selected_rot);
         } else {
           game_state.float('error', x, y, 'Placement blocked');
@@ -1631,15 +1641,16 @@ function buildMode(): void {
   }
 }
 
+let tut_temp = 0;
 tutorial_states = [
   null!,
   {
     msg:
-      'Welcome to Drone Supervisor II!\n' +
+      'Welcome to Drone Supervisor II!\n\n' +
       'You earn money by having Drones ' +
       'deliver resources to your home base. ' +
       'To get started, select the ' +
-      'Build Drone tool.',
+      'Drone Spawner tool.',
     indicator_name: 'buy_spawner',
     indicator: { x: 100, y: 100 },
     done: function () {
@@ -1658,247 +1669,295 @@ tutorial_states = [
   },
   {
     msg:
-      'Good job!\n' +
-      'Now, we want this Drone to ' +
-      'travel to the right.\n' +
-      'Click on the newly placed Drone ' +
-      'until he faces to the right, ' +
-      'towards your Base in the center ' +
-      'of the level.',
+      'Good job!\n\n' +
+      'Drones run until they run out of power at the end of the "day".\n\n' +
+      'Now, we want this Drone to travel to the right.\n' +
+      'Click on the newly placed Drone Spawner until it faces to the right, ' +
+      'towards your Base in the center of the map.',
     indicator: { x: 0, y: 2 },
     buy_validate: function (x, y, tile_type, dir) {
       return x === 0 && y === 2 && tile_type === 'spawner';
     },
     done: function () {
+      tut_temp = game_state.day_idx;
       return game_state.map[2][0] && game_state.map[2][0].rot === 1;
     },
   },
-  // {
-  //   msg: 'Perfect. Let\'s see how he\'ll do.  Click Preview.',
-  //   indicator_name: 'preview',
-  //   done: function () {
-  //     return play_state === 'preview';
-  //   },
-  // },
-  // {
-  //   msg: null,
-  //   done: function () {
-  //     return game_state.power < 0;
-  //   },
-  // },
-  // {
-  //   msg: 'Great! He picked up and sold one Gold, worth $100.\n' +
-  //     'If you want to see that again, choose Cancel, and click Preview again.\n' +
-  //     'To continue, click Next Turn, cashing in your earnings.',
-  //   indicator_name: 'next_turn',
-  //   done: function () {
-  //     return play_state === 'build' && game_state.turn === 1;
-  //   },
-  // },
-  // {
-  //   msg:
-  //     'Now it\'s another turn and we have more money to spend.\n\n' +
-  //     'Let\'s harvest the Silver, this will require changing the direction of Drones with Arrows.\n\n' +
-  //     'Select the Arrow tool.',
-  //   indicator_name: 'buy_arrow',
-  //   done: function () {
-  //     return current_tile === 'arrow';
-  //   },
-  // },
-  // {
-  //   msg: 'Now, place a Down Arrow in the indicated square.',
-  //   indicator: { x: 3, y: 6 },
-  //   buy_validate: function (x, y, tile_type, dir) {
-  //     return x === 3 && y === 6 && tile_type === 'arrow';
-  //   },
-  //   done: function () {
-  //     return game_state.map[3][6] && game_state.map[3][6].type === 'arrow' &&
-  //       game_state.map[3][6].direction === 2;
-  //   },
-  // },
-  // {
-  //   msg: 'And an Up Arrow in this indicated square.',
-  //   indicator: { x: 3, y: 7 },
-  //   buy_validate: function (x, y, tile_type, dir) {
-  //     return x === 3 && y === 7 && tile_type === 'arrow';
-  //   },
-  //   done: function () {
-  //     return game_state.map[3][7] && game_state.map[3][7].type === 'arrow' &&
-  //       game_state.map[3][7].direction === 0;
-  //   },
-  // },
-  // {
-  //   msg: 'Great!\n\nNow, a Drone facing left here.',
-  //   indicator: { x: 4, y: 6 },
-  //   buy_validate: function (x, y, tile_type, dir) {
-  //     return x === 4 && y === 6 && tile_type === 'drone';
-  //   },
-  //   done: function () {
-  //     return game_state.map[4][6] && game_state.map[4][6].type === 'drone' &&
-  //       game_state.map[4][6].direction === 3;
-  //   },
-  // },
-  // {
-  //   msg: 'One last thing, let\'s move our first drone somewhere better.\n\n' +
-  //     'Pick it up by right clicking, shift-clicking, or using the Sell tool.',
-  //   indicator: { x: 0, y: 3 },
-  //   buy_validate: function (x, y, tile_type, dir) {
-  //     return x === 0 && y === 3 && !tile_type;
-  //   },
-  //   done: function () {
-  //     return !game_state.map[0][3];
-  //   },
-  // },
-  // {
-  //   msg: 'Put it back down, facing right, right here.',
-  //   indicator: { x: 2, y: 4 },
-  //   buy_validate: function (x, y, tile_type, dir) {
-  //     return x === 2 && y === 4 && tile_type === 'drone';
-  //   },
-  //   done: function () {
-  //     return game_state.map[2][4] && game_state.map[2][4].type === 'drone' &&
-  //       game_state.map[2][4].direction === 1;
-  //   },
-  // },
-  // {
-  //   msg: 'Perfect. Let\'s get some more money.  Click Preview.',
-  //   indicator_name: 'preview',
-  //   done: function () {
-  //     return play_state === 'preview';
-  //   },
-  // },
-  // {
-  //   msg: null,
-  //   done: function () {
-  //     return game_state.power < 0;
-  //   },
-  // },
-  // {
-  //   msg: 'See how the left Drone stayed in one place and sold all of the Gold?\n' +
-  //     'Notice the right Drone following the arrows we placed.\n\n' +
-  //     'To continue, click Next Turn, cashing in your earnings.',
-  //   indicator_name: 'next_turn',
-  //   done: function () {
-  //     return play_state === 'build' && game_state.turn === 2;
-  //   },
-  // },
-  // {
-  //   msg: 'At the top, it says our goal is to Craft and Sell 1 jewelry.' +
-  //     '  We do not have enough money to build a crafting station yet, so' +
-  //     ' run one more turn with this same configuration.',
-  //   indicator_name: 'preview',
-  //   done: function () {
-  //     return play_state === 'preview';
-  //   },
-  // },
-  // {
-  //   msg: null,
-  //   done: function () {
-  //     return game_state.power < 0;
-  //   },
-  // },
-  // {
-  //   msg: 'Great, that should be enough money!',
-  //   indicator_name: 'next_turn',
-  //   done: function () {
-  //     let ret = play_state === 'build' && game_state.turn === 3;
-  //     if (ret) {
-  //       game_state.money = 1400;
-  //     }
-  //     return ret;
-  //   },
-  // },
-  // {
-  //   msg: 'Now, remove both drones and both arrows to reclaim our money.',
-  //   indicator_name: 'buy_sell',
-  //   buy_validate: function (x, y, tile_type, dir) {
-  //     return !tile_type;
-  //   },
-  //   done: function () {
-  //     return game_state.countOf('drone') + game_state.countOf('arrow') === 0;
-  //   },
-  // },
-  // {
-  //   msg: 'Select the 2-Node Crafting Station.',
-  //   indicator_name: 'buy_craft2',
-  //   done: function () {
-  //     return current_tile === 'craft2';
-  //   },
-  // },
-  // {
-  //   msg: 'And place it here, with the Output node (red) in the upper right.',
-  //   indicator: { x: 1, y: 6 },
-  //   buy_validate: function (x, y, tile_type, dir) {
-  //     return x === 1 && y === 6 && tile_type === 'craft2';
-  //   },
-  //   done: function () {
-  //     return game_state.map[1][6] && game_state.map[1][6].type === 'craft2' &&
-  //       game_state.map[1][6].direction === 0;
-  //   },
-  // },
-  // {
-  //   msg: `Finally, place 3 Drones and 2 Arrows in the configuration shown here:${
-  //     new Array(12).join('\n')}`,
-  //   buy_validate: function (x, y, tile_type, dir) {
-  //     return x >=0 && x <=3 && y >= 5 && y <= 8;
-  //   },
-  //   done: function () {
-  //     draw_list.queue(sprites.tutorial1,
-  //       camera2d.x1() - 380,
-  //       camera2d.y1() - 350,
-  //       Z.TUT + 3, color_white);
-  //     let test = [
-  //       [0,8,'drone',1],
-  //       [1,5,'drone',2],
-  //       [3,6,'drone',0],
-  //       [1,6,'craft2',0],
-  //       [1,8,'arrow',1],
-  //       [2,8,'arrow',3],
-  //     ];
-  //     for (let ii = 0; ii < test.length; ++ii) {
-  //       let t = test[ii];
-  //       if (game_state.map[t[0]][t[1]] && game_state.map[t[0]][t[1]].type === t[2] &&
-  //         game_state.map[t[0]][t[1]].direction === t[3]
-  //       ) {
-  //         // good
-  //       } else {
-  //         return false;
-  //       }
-  //     }
-  //     return true;
-  //   },
-  // },
-  // {
-  //   msg: 'You\'ve done it!\n' +
-  //     'Play out the turn to complete the tutorial.',
-  //   indicator_name: 'preview',
-  //   done: function () {
-  //     return play_state === 'preview';
-  //   },
-  // },
+  {
+    msg: 'Perfect.  Watch it work for a day or two.',
+    done: function () {
+      return game_state.day_idx >= tut_temp + 2;
+    },
+  },
+  {
+    msg: `Great!  It picked up and sold one Fruit, worth $${VALF}.\n\n` +
+      'It\'ll keep selling Fruit and earning money even when you\'re offline.',
+    done: function () {
+      return game_state.day_idx >= tut_temp + 3;
+    },
+  },
+  {
+    msg:
+      'Now we have more money to spend!\n\n' +
+      'Let\'s harvest the Stone too, this will require changing the direction of a Drone with a Turn Signal.\n\n' +
+      'Select the Turn Signal tool.',
+    indicator_name: 'buy_rotate',
+    done: function () {
+      return TOOLS[selected_tool]?.type === 'rotate';
+    },
+  },
+  {
+    msg: 'Now, place a (counter-clockwise) Turn Signal in the indicated square.\n\n' +
+      'Like rotating Drones, you can click on a Turn Signal to change the rotation direction.',
+    indicator: { x: 6, y: 1 },
+    buy_validate: function (x, y, tile_type, dir) {
+      return x === 6 && y === 1 && tile_type === 'rotate';
+    },
+    done: function () {
+      return game_state.map[1][6] && game_state.map[1][6].type === 'rotate' &&
+        game_state.map[1][6].rot === 1;
+    },
+  },
+  {
+    msg: 'Great!\n\nNow, a Drone facing left here.',
+    indicator: { x: 7, y: 1 },
+    buy_validate: function (x, y, tile_type, dir) {
+      return x === 7 && y === 1 && tile_type === 'spawner';
+    },
+    done: function () {
+      return game_state.map[1][7] && game_state.map[1][7].type === 'spawner' &&
+        game_state.map[1][7].rot === 3;
+    },
+  },
+  {
+    msg: 'One last thing, let\'s move our first drone somewhere better.\n\n' +
+      'Pick it up by right clicking, shift-clicking, or using the Sell tool.',
+    indicator: { x: 0, y: 2 },
+    buy_validate: function (x, y, tile_type, dir) {
+      return x === 0 && y === 2 && !tile_type;
+    },
+    done: function () {
+      return !game_state.map[2][0];
+    },
+  },
+  {
+    msg: 'Put it back down, facing right, right here.',
+    indicator: { x: 2, y: 3 },
+    buy_validate: function (x, y, tile_type, dir) {
+      return x === 2 && y === 3 && tile_type === 'spawner';
+    },
+    done: function () {
+      is_ff = false;
+      return game_state.map[3][2] && game_state.map[3][2].type === 'spawner' &&
+        game_state.map[3][2].rot === 1;
+    },
+  },
+  {
+    msg: 'Perfect.  Now we\'re rolling in the money!\n\nEnjoy watching them work for a couple days.\n\n' +
+      'You can speed up the simulation by pressing F, or using the button to the lower left.' +
+      '  This increases the visual simulation, however money is awarded at a fixed rate based on real time.\n\n' +
+      'Switch to Fast-Forward now.',
+    indicator_name: 'icon-play',
+    done: function () {
+      tut_temp = game_state.day_idx;
+      return is_ff;
+    },
+  },
+  {
+    msg: 'Zoom!',
+    done: function () {
+      return game_state.day_idx >= tut_temp + 1;
+    },
+  },
+  {
+    msg: `At the top, it says our goal is to reach a revenue of $${level_defs[0].goal}/day.\n\n` +
+      'To reach that goal, let\'s build a Crafter.  But first, remove our Drones and Turn Signal to reclaim our money.',
+    indicator_name: 'buy_sell',
+    buy_validate: function (x, y, tile_type, dir) {
+      return !tile_type;
+    },
+    done: function () {
+      if (game_state.me().money < 3000) {
+        game_state.me().money = 3000;
+      }
+      is_ff = false;
+      return game_state.countOf('spawner') + game_state.countOf('rotate') === 0;
+    },
+  },
+  {
+    msg: 'Select the 2-Node Crafting Station.',
+    indicator_name: 'buy_craft',
+    done: function () {
+      return TOOLS[selected_tool]?.type === 'craft';
+    },
+  },
+  {
+    msg: 'And place it here, with the Output node (green) in the lower left.',
+    indicator: { x: 3, y: 1 },
+    buy_validate: function (x, y, tile_type, dir) {
+      return x === 3 && y === 1 && tile_type === 'craft';
+    },
+    done: function () {
+      return game_state.map[1][3] && game_state.map[1][3].type === 'craft' &&
+        game_state.map[1][3].rot === 2;
+    },
+  },
+  {
+    msg: 'Place a Drone facing up here.',
+    indicator: { x: 2, y: 4 },
+    buy_validate: function (x, y, tile_type, dir) {
+      return x === 2 && y === 4 && tile_type === 'spawner';
+    },
+    done: function () {
+      return game_state.map[4][2] && game_state.map[4][2].type === 'spawner' &&
+        game_state.map[4][2].rot === 0;
+    },
+  },
+  {
+    msg: 'And a Drone facing and left here.',
+    indicator: { x: 7, y: 1 },
+    buy_validate: function (x, y, tile_type, dir) {
+      return x === 7 && y === 1 && tile_type === 'spawner';
+    },
+    done: function () {
+      return game_state.map[1][7] && game_state.map[1][7].type === 'spawner' &&
+        game_state.map[1][7].rot === 3;
+    },
+  },
+  {
+    msg: 'And finally a (clockwise) Turn Signal here.',
+    indicator: { x: 2, y: 1 },
+    buy_validate: function (x, y, tile_type, dir) {
+      return x === 2 && y === 1 && tile_type === 'rotate';
+    },
+    done: function () {
+      tut_temp = 0;
+      return game_state.map[1][2] && game_state.map[1][2].type === 'rotate' &&
+        game_state.map[1][2].rot === 0;
+    },
+  },
+  {
+    msg: 'Watch what happens...',
+    done: function () {
+      if (!tut_temp) {
+        tut_temp = game_state.me().money;
+      }
+      return game_state.me().money !== tut_temp;
+    },
+  },
+  {
+    msg: 'Because the right Drone is depositing the Stone a step before the left Drone is depositing Fruit,' +
+      ' the Crafter isn\'t doing anything useful!\n\nLet\'s fix this with a Signal!',
+    indicator_name: 'buy_signal-stop',
+    done: function () {
+      return TOOLS[selected_tool]?.type === 'signal-stop';
+    },
+  },
+  {
+    msg: 'Place the Stop Signal here.',
+    indicator: { x: 6, y: 1 },
+    buy_validate: function (x, y, tile_type, dir) {
+      return x === 6 && y === 1 && tile_type === 'signal-stop';
+    },
+    done: function () {
+      return game_state.map[1][6] && game_state.map[1][6].type === 'signal-stop';
+    },
+  },
+  {
+    msg: 'And place a Go Signal here.',
+    indicator_name: 'buy_signal-go',
+    indicator: { x: 2, y: 2 },
+    buy_validate: function (x, y, tile_type, dir) {
+      return x === 2 && y === 2 && tile_type === 'signal-go';
+    },
+    done: function () {
+      return TOOLS[selected_tool]?.type === 'signal-go' ||
+        game_state.map[2][2] && game_state.map[2][2].type === 'signal-go';
+    },
+  },
+  {
+    msg: 'And place a Go Signal here.',
+    indicator: { x: 2, y: 2 },
+    buy_validate: function (x, y, tile_type, dir) {
+      return x === 2 && y === 2 && tile_type === 'signal-go';
+    },
+    done: function () {
+      tut_temp = 0;
+      return game_state.map[2][2] && game_state.map[2][2].type === 'signal-go';
+    },
+  },
+  {
+    msg: 'Now watch...',
+    done: function () {
+      if (!tut_temp) {
+        tut_temp = game_state.day_idx;
+      }
+      let delta = game_state.day_idx - tut_temp;
+      tut_temp = game_state.day_idx;
+      return delta && game_state.last_money_earned === level_defs[0].goal;
+    },
+  },
+  {
+    msg: 'You fixed it, and sold some Jam!\n\n' +
+      'That\'s it for the tutorial, you can freely edit here now, or click the Menu button and then begin a real game!',
+    indicator_name: 'icon-menu',
+    buy_validate: function () {
+      return true;
+    },
+    done: function () {
+      return false;
+    },
+  },
 ];
 
 let tut_indicator: (() => void) | null = null;
 function drawTutorial(): void {
   tut_indicator = null;
+  if (engine.DEBUG) {
+    if (keyUpEdge(KEYS.MINUS)) {
+      game_state.tutorial_state--;
+    }
+    if (keyUpEdge(KEYS.EQUALS)) {
+      game_state.tutorial_state++;
+    }
+  }
   let tut_state = tutorial_states[game_state.tutorial_state];
   if (tut_state) {
     let tut_msg = tut_state.msg;
     if (tut_msg) {
       let font_size = FONT_HEIGHT;
-      let tut_w = 300;
+      let tut_w = 270;
       let tut_pad = 8;
       let text_w = tut_w - tut_pad * 2;
-      let tut_indent = 0;
-      let lines = font.numLines(style_text, text_w, tut_indent, font_size, tut_msg);
-      let tut_h = lines * font_size + font_size * 1.5 + tut_pad*2;
-      let tut_x = camera2d.x1() - tut_w;
-      let tut_y0 = camera2d.y1() - FONT_HEIGHT - tut_h;
+      let tut_x = camera2d.x1() - BUTTON_HEIGHT * 2 - 8 - tut_w;
+      let tut_y1 = camera2d.y1() - FONT_HEIGHT - 6;
+      let body_h = markdownAuto({
+        font_style: style_text,
+        alpha: 0,
+        text_height: font_size,
+        x: tut_x + tut_pad,
+        y: tut_y1,
+        z: Z.TUT - 2,
+        w: text_w,
+        align: ALIGN.HWRAP,
+        text: tut_msg,
+      }).h;
+      let tut_h = body_h + font_size * 1.5 + tut_pad*2;
+      let tut_y0 = tut_y1 - tut_h;
       let tut_y = tut_y0 + tut_pad;
       font.drawSized(style_text, tut_x + tut_pad, tut_y, Z.TUT, font_size * 1.5,
         'Tutorial');
       tut_y += font_size * 1.5;
-      tut_y += font.drawSizedWrapped(style_text, tut_x + tut_pad, tut_y, Z.TUT, text_w, tut_indent, font_size, tut_msg);
+      markdownAuto({
+        font_style: style_text,
+        text_height: font_size,
+        x: tut_x + tut_pad,
+        y: tut_y,
+        z: Z.TUT,
+        w: text_w,
+        align: ALIGN.HWRAP,
+        text: tut_msg,
+      });
       panel({
         x: tut_x,
         y: tut_y0,
@@ -1947,7 +2006,7 @@ function drawTutorial(): void {
 let counter = 0;
 function statePlay(dt: number): void {
   let dt_orig = dt;
-  let eff_is_ff = is_ff || keyDown(KEYS.SHIFT);
+  let eff_is_ff = is_ff; //  || keyDown(KEYS.SHIFT);
   if (eff_is_ff) {
     dt *= 5;
   }
@@ -2001,6 +2060,8 @@ function statePlay(dt: number): void {
   if (drag_ret && !game_state.tutorial_state) {
     view_center[0] -= drag_ret.delta[0] / TILE_SIZE;
     view_center[1] -= drag_ret.delta[1] / TILE_SIZE;
+  } else if (game_state.tutorial_state) {
+    view_center[1] = game_state.h / 2 + 2;
   }
   camera2d.push();
   let x0 = floor(view_center[0] * TILE_SIZE - camera2d.w() / 2);
