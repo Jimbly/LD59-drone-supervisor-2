@@ -15,8 +15,6 @@ Start with: `npm start` (after running `npm i` once)
 TODO
 ====
 
-High scores (minimum total net worth to meet revenue goal, fewest day ticks secondary)
-
 Questions:
 * Can we upgrade day length?  If not, then we need faster locomotion / cannons, or longer days and a way to skip
 * Either is probably fine for MP, other people's drones just run out of power sooner
@@ -30,6 +28,7 @@ Issue with a 2/4P game that you left showing up at top of list
 Prune rooms with only a single user who left
 Show finished state of games on room list - encourage user to resume a game that has been won but they haven't seen the victory for it yet (and save a high score when they do)
   Also some progress - encourage joining games with players actively playing
+get default name for new anonymous account for scores local storage
 
 Maybe
 =====

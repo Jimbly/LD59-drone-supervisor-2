@@ -24,7 +24,7 @@ export const palette = palette_font.map((hex) => {
   return vec4ColorFromIntColor(vec4(), hex);
 });
 
-export const PAL_BLUE = 7;
+export const PAL_BLUE = 3;
 export const PAL_GREEN = 11;
 export const PAL_ORANGE = 8;
 export const PAL_YELLOW = 12;

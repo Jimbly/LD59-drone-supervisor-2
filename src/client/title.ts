@@ -3,9 +3,10 @@ import { AnimationSequencer, animationSequencerCreate } from 'glov/client/animat
 import * as camera2d from 'glov/client/camera2d';
 import { MODE_DEVELOPMENT } from 'glov/client/client_config';
 import { setState } from 'glov/client/engine';
-import { ALIGN, fontStyle } from 'glov/client/font';
-import { eatAllInput, mouseDownAnywhere } from 'glov/client/input';
+import { ALIGN, fontStyle, fontStyleColored } from 'glov/client/font';
+import { eatAllInput, KEYS, mouseDownAnywhere } from 'glov/client/input';
 import { ClientChannelWorker, netSubs, netUserId } from 'glov/client/net';
+import { scoresDraw } from 'glov/client/score_ui';
 import { ScrollArea, scrollAreaCreate } from 'glov/client/scroll_area';
 import {
   button,
@@ -28,10 +29,13 @@ import {
   game_width,
   GameStateSerialized,
   getLevelDefs,
+  levelDefs,
   playInit,
   playNewGameState,
+  Score,
+  scoreSystem,
 } from './main';
-import { PAL_BLACK, PAL_BORDER, PAL_WHITE, palette, palette_font } from './palette';
+import { PAL_BLACK, PAL_BLUE, PAL_BORDER, PAL_WHITE, palette, palette_font } from './palette';
 
 urlhash.register({
   key: 'room',
@@ -41,6 +45,99 @@ urlhash.register({
 });
 
 let account_ui: ReturnType<typeof createAccountUI>;
+
+const style_title = fontStyle(null, {
+  color: palette_font[PAL_WHITE],
+  outline_color: palette_font[8],
+  outline_width: 4,
+});
+
+const SCORE_COLUMNS = [
+  // widths are just proportional, scaled relative to `width` passed in
+  { name: '', width: 3, align: ALIGN.HFIT | ALIGN.HRIGHT | ALIGN.VCENTER },
+  { name: 'Name', width: 12, align: ALIGN.HFIT | ALIGN.VCENTER },
+  { name: 'Revenue', width: 8 },
+  { name: 'Build Cost', width: 8 },
+  // { name: 'Days', width: 4 },
+];
+const style_score = fontStyleColored(null, palette_font[PAL_WHITE]);
+const style_me = fontStyleColored(null, palette_font[PAL_BLACK]);
+const style_header = fontStyleColored(null, palette_font[3]);
+let goal_revenue = 0;
+function myScoreToRow(row: unknown[], score: Score): void {
+  row.push(score.revenue === goal_revenue ? 'WON' : `$${score.revenue}`, `$${score.networth}`); //, score.days);
+}
+
+
+let score_idx = 1;
+function stateScores(dt: number): void {
+  let x = 4;
+  let y = 3;
+  const CHW = FONT_HEIGHT;
+  const CHH = FONT_HEIGHT;
+  const LINEH = CHH;
+  let font = uiGetFont();
+
+  if (buttonText({
+    x: 1,
+    y: 1,
+    w: CHW * 4,
+    text: 'Back',
+    hotkey: KEYS.ESC,
+  })) {
+    // queueTransition();
+    // eslint-disable-next-line @typescript-eslint/no-use-before-define
+    setState(stateTitle);
+  }
+
+  font.draw({
+    style: style_title,
+    x: 0,
+    y,
+    w: game_width,
+    text: 'HIGH SCORES',
+    size: CHH * 2,
+    align: ALIGN.HCENTER,
+  });
+  y += CHH * 2 + 3;
+  font.draw({
+    style: style_header,
+    x: 0,
+    y,
+    w: game_width,
+    text: levelDefs()[score_idx].display_name,
+    size: CHH,
+    align: ALIGN.HCENTER,
+  });
+  y += CHH + 3;
+
+  goal_revenue = levelDefs()[score_idx].goal;
+
+  let w = game_width - 8;
+  y += LINEH;
+  let text_height = uiTextHeight();
+  scoresDraw<Score>({
+    score_system: scoreSystem(),
+    allow_rename: true,
+    x,
+    width: w,
+    y,
+    height: game_height - y,
+    z: Z.UI,
+    size: text_height,
+    line_height: text_height + 2,
+    level_index: score_idx,
+    columns: SCORE_COLUMNS,
+    scoreToRow: myScoreToRow,
+    style_score,
+    style_me,
+    style_header,
+    color_line: palette[3],
+    color_me_background: palette[11],
+    rename_button_size: 6,
+    rename_button_offset: -2/text_height,
+  });
+}
 
 let net_msg: string | null = null;
 
@@ -68,11 +165,6 @@ function stateTitleInitOnce(): void {
     title_alpha.button = progress;
   });
 }
-const style_title = fontStyle(null, {
-  color: palette_font[PAL_WHITE],
-  outline_color: palette_font[8],
-  outline_width: 4,
-});
 
 function preLogout(): void {
   // if (test_room) {
@@ -276,7 +368,7 @@ function stateTitle(dt: number): void {
   }
   let disp_name = netSubs().getDisplayName() || netSubs().getUserId()!;
   font.draw({
-    color: palette_font[PAL_WHITE],
+    color: palette_font[PAL_BLUE],
     x: button_width + 8, y: 4, align: ALIGN.VCENTER | ALIGN.HCENTERFIT,
     w: game_width - (button_width + 8) * 2,
     h: BUTTON_HEIGHT,
@@ -307,7 +399,7 @@ function stateTitle(dt: number): void {
   }
 
   font.draw({
-    color: palette_font[PAL_WHITE],
+    color: palette_font[PAL_BLUE],
     alpha: title_alpha.sub,
     x: 0,
     y: H - text_height - 2,
@@ -346,7 +438,7 @@ function stateTitle(dt: number): void {
   };
   for (let ii = 0; ii < level_defs.length; ++ii) {
     let ld = level_defs[ii];
-    if (ld.name === 'debug') {
+    if (ld.display_name === 'debug') {
       continue;
     }
 
@@ -365,7 +457,7 @@ function stateTitle(dt: number): void {
       alpha: title_alpha.button,
       h: BUTTON_HEIGHT,
       align: ALIGN.VCENTER,
-      text: ld.name,
+      text: ld.display_name,
     });
     x += 60;
     if (button({
@@ -410,7 +502,8 @@ function stateTitle(dt: number): void {
       x, y,
       text: 'Scores',
     })) {
-      // TODO
+      score_idx = ii;
+      setState(stateScores);
     }
     x += button_w + 4;
 
@@ -419,6 +512,7 @@ function stateTitle(dt: number): void {
 
   if (!roomlist_loaded) {
     font.draw({
+      color: palette_font[PAL_BLUE],
       x: 0, y, w: W,
       align: ALIGN.HCENTER,
       text: 'Loading room list...',
@@ -442,6 +536,7 @@ function stateTitle(dt: number): void {
   W -= 15*2;
 
   font.draw({
+    color: palette_font[PAL_BLUE],
     x, y, w: W,
     text: 'Previous Games / Open Rooms',
     align: ALIGN.HCENTER,
@@ -493,7 +588,7 @@ function stateTitle(dt: number): void {
 
     font.draw({
       x, y, z,
-      text: `${ld.name} ${entry.players.length}/${entry.num_players}P (${entry.room_id})`,
+      text: `${ld.display_name} ${entry.players.length}/${entry.num_players}P (${entry.room_id})`,
     });
     y += text_height;
     let players = entry.players;

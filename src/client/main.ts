@@ -28,6 +28,7 @@ import {
 import { markdownAuto } from 'glov/client/markdown';
 import { markdownSetColorStyle } from 'glov/client/markdown_renderables';
 import { ClientChannelWorker, netInit } from 'glov/client/net';
+import { scoreAlloc, ScoreSystem } from 'glov/client/score';
 import { socialInit } from 'glov/client/social';
 import { SPOT_NAVTYPE_SIMPLE, spotSetNavtype } from 'glov/client/spot';
 import { spriteSetGet } from 'glov/client/sprite_sets';
@@ -100,9 +101,14 @@ const MAX_PAYOUT_DAYS = 99;
 
 let font: Font;
 
-function init(): void {
-  // anything?
-  autoAtlas('main', 'base');
+export type Score = {
+  revenue: number;
+  networth: number;
+  days: number;
+};
+let score_system: ScoreSystem<Score>;
+export function scoreSystem(): ScoreSystem<Score> {
+  return score_system;
 }
 
 function inZone(zone: JSVec4, x: number, y: number): boolean {
@@ -147,6 +153,7 @@ const BASE_RESOURCES = [
 type BaseResourceType = typeof BASE_RESOURCES[number];
 type LevelDef = {
   name: string;
+  display_name: string;
   players: number;
   w: number;
   h: number;
@@ -158,7 +165,8 @@ type LevelDef = {
 };
 
 const level_defs: LevelDef[] = [{
-  name: 'Tutorial',
+  name: 'tut',
+  display_name: 'Tutorial',
   players: 1,
   w: 9,
   h: 9,
@@ -172,7 +180,8 @@ const level_defs: LevelDef[] = [{
     fruit: 0,
   },
 }, {
-  name: 'Small (Solo)',
+  name: 'small1p',
+  display_name: 'Small (Solo)',
   players: 1,
   w: 17,
   h: 15,
@@ -186,7 +195,8 @@ const level_defs: LevelDef[] = [{
     fruit: 3,
   },
 }, {
-  name: 'Medium (2P)',
+  name: 'med2p',
+  display_name: 'Medium (2P)',
   players: 2,
   w: 17,
   h: 21,
@@ -200,7 +210,8 @@ const level_defs: LevelDef[] = [{
     fruit: 4,
   },
 }, {
-  name: 'Large (4P)',
+  name: 'large4p',
+  display_name: 'Large (4P)',
   players: 4,
   w: 25,
   h: 21,
@@ -213,7 +224,7 @@ const level_defs: LevelDef[] = [{
     stone: 5,
     fruit: 5,
   },
-}, ...(engine.DEBUG ? [{
+}/*, ...(engine.DEBUG ? [{
   name: 'debug',
   players: 1,
   w: 11,
@@ -227,7 +238,52 @@ const level_defs: LevelDef[] = [{
     stone: 3,
     fruit: 3,
   },
-}] : [])];
+}] : [])*/
+// eslint-disable-next-line @stylistic/array-bracket-newline
+];
+
+export function levelDefs(): LevelDef[] {
+  return level_defs;
+}
+
+function init(): void {
+  // anything?
+  autoAtlas('main', 'base');
+
+  const ENCODE_A = 10000;
+  const ENCODE_B = 1000000;
+  score_system = scoreAlloc({
+    score_to_value: (score: Score): number => {
+      return score.revenue * (ENCODE_A * ENCODE_B) +
+        max(ENCODE_B - 1 - score.networth, 0) * ENCODE_A +
+        max(ENCODE_A - 1 - score.days, 0);
+    },
+    value_to_score: (value: number): Score => {
+      let encode_days = value % ENCODE_A;
+      value -= encode_days;
+      value = floor(value / ENCODE_A);
+      let encode_networth = value % ENCODE_B;
+      value -= encode_networth;
+      value = floor(value / ENCODE_B);
+      let revenue = value;
+      let days = ENCODE_A - 1 - encode_days;
+      let networth = ENCODE_B - 1 - encode_networth;
+      return {
+        revenue,
+        networth,
+        days,
+      };
+    },
+    level_defs: level_defs,
+    score_key: 'LD59',
+    ls_key: 'ld59',
+    asc: false,
+    rel: 8,
+    num_names: 3,
+    histogram: false,
+  });
+
+}
 
 export function getLevelDefs(): LevelDef[] {
   return level_defs;
@@ -1120,7 +1176,7 @@ class GameState {
     }
 
     this.tutorial_state = 0;
-    if (ld.name === 'Tutorial') {
+    if (ld.name === 'tut') {
       this.tutorial_state = 1;
       this.map[3][1] = {
         type: 'resource',
@@ -1227,7 +1283,22 @@ class GameState {
     return v;
   }
 
-  calcNetWorth(): number {
+  score(): Score {
+    let revenue = min(this.totalRevenue(), this.ld.goal);
+    let networth = this.calcNetWorth(true);
+    let days = floor((walltime.now() - this.game_start_time) / PAYOUT_TIME);
+    return {
+      revenue,
+      networth,
+      days,
+    };
+  }
+
+  saveScore(): void {
+    score_system.setScore(this.ld_idx, this.score());
+  }
+
+  calcNetWorth(for_scores: boolean): number {
     let counts: Partial<Record<CellType, number>> = {};
     let { map, w, h } = this;
     for (let jj = 0; jj < h; ++jj) {
@@ -1241,6 +1312,9 @@ class GameState {
     }
     let r = 0;
     for (let key in COST_TABLE) {
+      if (for_scores && key === 'sign') {
+        continue;
+      }
       let cost_calc = COST_TABLE[key as CellType];
       if (cost_calc) {
         for (let jj = 0; jj < (counts[key as CellType] || 0); ++jj) {
@@ -1248,7 +1322,7 @@ class GameState {
         }
       }
     }
-    return r + this.me().money;
+    return r;
   }
 
   countOf(tile_type: CellType): number {
@@ -1411,6 +1485,7 @@ class GameState {
       this.last_saved_my_payout = this.me().payout_index;
     }
     this.invalidate();
+    this.saveScore();
   }
 }
 
@@ -1547,14 +1622,14 @@ function drawHUD(eff_is_ff: boolean): void {
     y += BUTTON_HEIGHT + TOOL_PAD;
   }
 
-  let net_worth = game_state.calcNetWorth();
+  let net_worth = game_state.calcNetWorth(true);
   let money = game_state.me().money;
   let panel_h = font.draw({
     style: style_text,
     x, y, z, w,
     align: ALIGN.HWRAP | ALIGN.HCENTER,
     text: `Money:\n$${money}\n\nRevenue:\n$${game_state.calcValue()}` +
-      `${net_worth !== money ? `\n\nNet worth:\n$${net_worth}` : ''}`,
+      `${net_worth ? `\n\nBuilt:\n$${net_worth}` : ''}`,
   });
   const PANEL_PAD = 4;
   panel({
@@ -2569,6 +2644,7 @@ function sendDiff(): void {
         throw err;
       }
     });
+    game_state.saveScore();
   }
 }
 
