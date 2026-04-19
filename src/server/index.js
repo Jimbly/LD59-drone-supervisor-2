@@ -5,6 +5,8 @@ import * as https from 'https';
 import * as path from 'path';
 import * as express from 'express';
 import * as express_static_gzip from 'express-static-gzip';
+import 'glov/server/channel_server';
+import { displayNameChangeLimitSet } from 'glov/server/default_workers';
 import { permTokenWorkerInit } from 'glov/server/perm_token_worker';
 import {
   requestLogEverything,
@@ -73,6 +75,8 @@ glov_server.startup({
 
 // Opt-in to the permissions token system (Note: make sure config/server.json:forward_depth is correct!)
 permTokenWorkerInit(glov_server.channel_server, app);
+
+displayNameChangeLimitSet(0);
 
 multiplayerWorkerInit(glov_server.channel_server);
 roomlistWorkerInit(glov_server.channel_server);

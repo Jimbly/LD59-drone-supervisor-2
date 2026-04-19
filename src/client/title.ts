@@ -6,8 +6,18 @@ import { ALIGN, fontStyle } from 'glov/client/font';
 import { eatAllInput, mouseDownAnywhere } from 'glov/client/input';
 import { ClientChannelWorker, netSubs, netUserId } from 'glov/client/net';
 import { ScrollArea, scrollAreaCreate } from 'glov/client/scroll_area';
-import { button, buttonText, drawRect, modalDialog, uiButtonWidth, uiGetFont, uiTextHeight } from 'glov/client/ui';
+import {
+  button,
+  buttonText,
+  drawRect,
+  modalDialog,
+  modalTextEntry,
+  uiButtonWidth,
+  uiGetFont,
+  uiTextHeight,
+} from 'glov/client/ui';
 import * as urlhash from 'glov/client/urlhash';
+import { DISPLAY_NAME_MAX_VISUAL_SIZE } from 'glov/common/net_common';
 import type { RoomListResponse, RoomRecord, RoomRequest, RoomResponse } from '../server/roomlist_worker';
 import { createAccountUI } from './account_ui';
 import {
@@ -244,12 +254,37 @@ function stateTitle(dt: number): void {
   })) {
     netSubs().logout();
   }
+  let disp_name = netSubs().getDisplayName() || netSubs().getUserId()!;
   font.draw({
     color: palette_font[PAL_WHITE],
-    x: game_width - button_width - 8, y: 4, align: ALIGN.VCENTER | ALIGN.HRIGHT,
+    x: button_width + 8, y: 4, align: ALIGN.VCENTER | ALIGN.HCENTERFIT,
+    w: game_width - (button_width + 8) * 2,
     h: BUTTON_HEIGHT,
-    text: `Welcome, ${netSubs().getDisplayName()}!`
+    text: `Welcome, ${disp_name}!`
   });
+  if (button({
+    x: 4,
+    y: 4,
+    text: 'Change Name',
+  })) {
+    modalTextEntry({
+      title: 'Change Display Name',
+      edit_text: disp_name,
+      max_visual_size: DISPLAY_NAME_MAX_VISUAL_SIZE,
+      buttons: {
+        OK: function (new_name) {
+          if (new_name) {
+            netSubs().getMyUserChannel()!.cmdParse(`rename ${new_name}`, (err) => {
+              if (err) {
+                console.log(err);
+              }
+            });
+          }
+        },
+        Cancel: null,
+      }
+    });
+  }
 
   font.draw({
     color: palette_font[PAL_WHITE],
@@ -382,7 +417,7 @@ function stateTitle(dt: number): void {
     x: 0, w: W,
     y, h: game_height - y - text_height - 4,
   });
-  y = 0;
+  y = 1;
   let x = 16;
   W -= 32;
 

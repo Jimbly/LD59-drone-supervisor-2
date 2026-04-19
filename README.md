@@ -19,6 +19,7 @@ Tutorial game (single-player, but still on server)
 Multiplayer logic
   goal: total revenue / day
 High scores (minimum total net worth to meet revenue goal, fewest day ticks secondary)
+Sign object (for multiplayer or personal notes)
 
 Questions:
 * Can we upgrade day length?  If not, then we need faster locomotion / cannons, or longer days and a way to skip
