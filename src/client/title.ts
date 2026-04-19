@@ -1,5 +1,6 @@
 import assert from 'assert';
 import { AnimationSequencer, animationSequencerCreate } from 'glov/client/animation';
+import * as camera2d from 'glov/client/camera2d';
 import { MODE_DEVELOPMENT } from 'glov/client/client_config';
 import { setState } from 'glov/client/engine';
 import { ALIGN, fontStyle } from 'glov/client/font';
@@ -217,11 +218,14 @@ function stateTitle(dt: number): void {
     stateTitleInitOnce();
   }
 
+  camera2d.setAspectFixed(game_width, game_height);
+  camera2d.set(camera2d.x0(), 0, camera2d.x1(), camera2d.h(), false);
+
   let font = uiGetFont();
   let text_height = uiTextHeight();
 
   let W = game_width;
-  let H = game_height;
+  let H = camera2d.h();
 
   if (title_anim && (mouseDownAnywhere() || MODE_DEVELOPMENT)) {
     title_anim.update(Infinity);
@@ -431,11 +435,11 @@ function stateTitle(dt: number): void {
   }
   room_scroll_area.begin({
     x: 0, w: W,
-    y, h: game_height - y - text_height - 4,
+    y, h: H - y - text_height - 4,
   });
   y = 1;
-  let x = 16;
-  W -= 32;
+  let x = 15;
+  W -= 15*2;
 
   font.draw({
     x, y, w: W,
