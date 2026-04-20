@@ -25,6 +25,7 @@ import {
   mouseOver,
   mousePos,
   mouseUpEdge,
+  mouseWheel,
 } from 'glov/client/input';
 import { markdownAuto } from 'glov/client/markdown';
 import {
@@ -477,6 +478,7 @@ const COST_TABLE: Partial<Record<CellType, JSVec2>> = {
 
 const BASE_SIZE = 3;
 
+let view_zoom = 1;
 let view_center: JSVec2 = [0, 0];
 
 type SimMapEntry = {
@@ -1294,6 +1296,7 @@ class GameState {
 
     let my_zone = this.player_zones[this.my_player_idx];
     view_center = [(my_zone[0] + my_zone[2]) / 2, (my_zone[1] + my_zone[3]) / 2];
+    view_zoom = 1;
   }
 
   payoutTime(): number {
@@ -2163,8 +2166,10 @@ function buildMode(): void {
             }
           });
         } else {
-          game_state.float('error', x, y, 'Placement blocked');
-          playSound('place_error');
+          if (tool) {
+            game_state.float('error', x, y, 'Placement blocked');
+            playSound('place_error');
+          }
         }
       }
     }
@@ -2729,10 +2734,17 @@ function statePlay(dt: number): void {
     });
   }
 
+  let wheel = mouseWheel();
+  view_zoom -= wheel * 0.25;
+  view_zoom = clamp(view_zoom, 1, 2.75);
+  if (engine.defines.COMPO) {
+    view_zoom = 1;
+  }
+  let eff_zoom = round(view_zoom * 16) / 16;
   let drag_ret = drag(full_rect);
   if (drag_ret) {
-    view_center[0] -= drag_ret.delta[0] / TILE_SIZE;
-    view_center[1] -= drag_ret.delta[1] / TILE_SIZE;
+    view_center[0] -= drag_ret.delta[0] / TILE_SIZE * eff_zoom;
+    view_center[1] -= drag_ret.delta[1] / TILE_SIZE * eff_zoom;
   }
   let scroll_x = keyDown(KEYS.A) * -1 + keyDown(KEYS.D);
   let scroll_y = keyDown(KEYS.W) * -1 + keyDown(KEYS.S);
@@ -2743,6 +2755,7 @@ function statePlay(dt: number): void {
   if (game_state.tutorial_state) {
     view_center[0] = game_state.w / 2 + 2;
     view_center[1] = game_state.h / 2 + 2;
+    eff_zoom = 1;
   }
   sound3DListener({
     pos: [view_center[0]*SOUND_POS_SCALE, view_center[1]*SOUND_POS_SCALE, 0],
@@ -2750,13 +2763,13 @@ function statePlay(dt: number): void {
     up: [0, 0, -1],
   });
   camera2d.push();
-  let x0 = (view_center[0] * TILE_SIZE - camera2d.w() / 2);
-  let y0 = (view_center[1] * TILE_SIZE - camera2d.h() / 2);
+  let x0 = (view_center[0] * TILE_SIZE - camera2d.w()*eff_zoom / 2);
+  let y0 = (view_center[1] * TILE_SIZE - camera2d.h()*eff_zoom / 2);
   if (engine.defines.SS) {
     x0 = floor(x0);
     y0 = floor(y0);
   }
-  camera2d.set(x0, y0, x0 + camera2d.w(), y0 + camera2d.h());
+  camera2d.set(x0, y0, x0 + camera2d.w()*eff_zoom, y0 + camera2d.h()*eff_zoom);
   let { map, w, h, sim_state } = game_state;
   let { drones, transfers, sim_map } = sim_state;
   let z = Z.MAP;
