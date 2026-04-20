@@ -3,6 +3,31 @@
 const local_storage = require('glov/client/local_storage');
 local_storage.setStoragePrefix('ld59'); // Before requiring anything else that might load from this
 
+import { platformRegister } from 'glov/common/platform'; // eslint-disable-line import/order
+platformRegister('discord', {
+  devmode: 'off',
+  reload: true,
+  reload_updates: true,
+  random_creation_name: true,
+  exit: false,
+});
+
+platformRegister('itch', {
+  devmode: 'off',
+  reload: false,
+  reload_updates: false,
+  random_creation_name: true,
+  exit: false,
+});
+
+platformRegister('wavedash', {
+  devmode: 'off',
+  reload: false,
+  reload_updates: false,
+  random_creation_name: true,
+  exit: false,
+});
+
 // Virtual viewport for our game logic
 export const game_width = 384;
 export const game_height = 256+6;
