@@ -2697,6 +2697,10 @@ function statePlay(dt: number): void {
   camera2d.push();
   let x0 = (view_center[0] * TILE_SIZE - camera2d.w() / 2);
   let y0 = (view_center[1] * TILE_SIZE - camera2d.h() / 2);
+  if (engine.defines.SS) {
+    x0 = floor(x0);
+    y0 = floor(y0);
+  }
   camera2d.set(x0, y0, x0 + camera2d.w(), y0 + camera2d.h());
   let { map, w, h, sim_state } = game_state;
   let { drones, transfers, sim_map } = sim_state;
@@ -3064,7 +3068,7 @@ export function main(): void {
   let pixely = 'on';
   let font_def;
   let ui_sprites;
-  let pixel_perfect = 0;
+  let pixel_perfect = engine.defines.SS ? 1 : 0;
   if (pixely === 'strict') {
     font_def = { info: font_info_04b03x1, texture: 'font/04b03_8x1' };
     ui_sprites = spriteSetGet('pixely');
@@ -3095,6 +3099,7 @@ export function main(): void {
     },
     pixel_perfect,
     ui_sounds: SOUND_DATA,
+    show_fps: engine.DEBUG && !engine.defines.SS
   })) {
     return;
   }

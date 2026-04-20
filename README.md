@@ -18,6 +18,10 @@ Start with: `npm start` (after running `npm i` once)
 TODO
 ====
 
+sound dimming based on distance from view center + is-on-screen check
+Add chat UI, might as well
+mousewheel to zoom in/out
+
 Show finished state of games on room list - encourage user to resume a game that has been won but they haven't seen the victory for it yet (and save a high score when they do)
   Also some progress - encourage joining games with players actively playing
 
