@@ -124,7 +124,7 @@ import {
 } from './palette';
 import { SOUND_DATA } from './sound_data';
 import { getDisplayName, titleInit, titleReturn } from './title';
-import { wavedashReady } from './wavedash';
+import { wavedashReady, wavedashScoreSubmit } from './wavedash';
 
 let chat_ui: ChatUI | null = null;
 
@@ -1559,7 +1559,9 @@ class GameState {
   }
 
   saveScore(): void {
-    score_system.setScore(this.ld_idx, this.score());
+    let score = this.score();
+    score_system.setScore(this.ld_idx, score);
+    wavedashScoreSubmit(this.ld.display_name, score);
   }
 
   calcNetWorth(for_scores: boolean): number {
