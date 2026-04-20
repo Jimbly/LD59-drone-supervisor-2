@@ -1,6 +1,6 @@
 module.exports = function (config) {
 
-  config.extra_index = [{
+  config.extra_index.push({
     name: 'itch',
     defines: {
       ...config.default_defines,
@@ -8,15 +8,15 @@ module.exports = function (config) {
     },
     zip: true,
     wrapper: 'itchlaunch.html',
-  }];
+  });
   config.extra_client_html = ['client/itchlaunch.html'];
 
-  config.extra_index = [{
+  config.extra_index.push({
     name: 'wavedash',
     defines: {
       ...config.default_defines,
       PLATFORM: 'wavedash',
     },
     zip: true,
-  }];
+  });
 };
