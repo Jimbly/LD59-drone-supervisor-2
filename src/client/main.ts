@@ -2784,11 +2784,14 @@ function statePlay(dt: number): void {
           font.draw({
             style: style_base_money,
             x: (xx + 1.5) * TILE_SIZE,
-            y: yy * TILE_SIZE + 9,
+            y: yy * TILE_SIZE + (engine.defines.COMPO ? 9 : 13),
             z: zz + 0.1,
             align: ALIGN.HCENTER,
             text: name,
           });
+          if (!engine.defines.COMPO) {
+            frame = 'base-notmine';
+          }
         }
       }
       autoAtlas('main', frame).draw({
