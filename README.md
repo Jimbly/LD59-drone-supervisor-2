@@ -1,13 +1,16 @@
 LD59 - Theme Signal & Machines
 ============================
 
-Ludum Dare 59 Entry by Jimbly - "Title TBD"
+Ludum Dare 59 Entry by Jimbly - "Drone Supervisor II Online"
+
+Async multiplayer online automation game
 
 * Play here: [dashingstrike.com/LudumDare/LD59/](http://www.dashingstrike.com/LudumDare/LD59/)
 * Using [Javascript libGlov/GLOV.js framework](https://github.com/Jimbly/glovjs)
 
 Acknowledgements:
-* TODO
+* Palette - https://lospec.com/palette-list/arq16
+* Predecessor - https://ldjam.com/events/ludum-dare/39/drone-supervisor
 
 Start with: `npm start` (after running `npm i` once)
 
