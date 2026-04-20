@@ -14,8 +14,10 @@ import assert from 'assert';
 import { autoAtlas } from 'glov/client/autoatlas';
 import * as camera2d from 'glov/client/camera2d';
 import { ChatUI, chatUICreate } from 'glov/client/chat_ui';
+import { MODE_DEVELOPMENT, platformGetID } from 'glov/client/client_config';
 import { cmd_parse } from 'glov/client/cmds';
 import * as engine from 'glov/client/engine';
+import { environmentsInit } from 'glov/client/environments';
 import { ALIGN, Font, FontStyle, fontStyle, fontStyleColored } from 'glov/client/font';
 import {
   drag,
@@ -62,6 +64,7 @@ import {
   uiGetFont,
   uiSetPanelColor,
 } from 'glov/client/ui';
+import { getURLBase } from 'glov/client/urlhash';
 import * as walltime from 'glov/client/walltime';
 import { profanityFilter, profanityStartup } from 'glov/client/words/profanity';
 import { Differ, differCreate } from 'glov/common/differ';
@@ -3135,6 +3138,31 @@ export function playInit(level_idx: number, player_idx: number, channel: ClientC
 }
 
 export function main(): void {
+  if (platformGetID() === 'discord') {
+    environmentsInit([{
+      name: 'discord',
+      api_path: `${getURLBase()}.proxy/api/`,
+    }], cmd_parse, 'discord');
+  } else if (platformGetID() === 'itch' || platformGetID() === 'wavedash') {
+    // For online multiplayer:
+    let host = 'http://www.dashingstrike.com/dronesup2';
+    if (MODE_DEVELOPMENT ||
+      window.location.host.indexOf('staging') !== -1 ||
+      window.location.host.startsWith('localhost')
+    ) {
+      host = 'http://staging.dashingstrike.com/dronesup2';
+      // host = 'http://localhost:4005';
+    }
+    if (window.location.href.startsWith('https://')) {
+      host = host.replace(/^http:/, 'https:');
+    }
+
+    environmentsInit([{
+      name: 'itch',
+      api_path: `${host}/api/`,
+    }], cmd_parse, 'itch');
+  }
+
   netInit({
     engine,
     cmd_parse,
