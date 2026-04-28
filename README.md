@@ -3,6 +3,8 @@ LD59 - Themes "Signal" & "Machines"
 
 Ludum Dare 59 and Gamedev.js '26 Entry by Jimbly - "Drone Supervisor II Online"
 
+<img src="https://github.com/Jimbly/LD59-drone-supervisor-2/blob/HEAD/screenshots/animation-smaller.gif">
+
 Async multiplayer online automation game
 
 * Play here: [dashingstrike.com/dronesup2/](http://www.dashingstrike.com/dronesup2/)
