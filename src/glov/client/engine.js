@@ -338,6 +338,14 @@ export function debugDefineIsSet(define) {
   return defines[define];
 }
 
+export function debugDefineSet(define) {
+  defines[define] = 1;
+}
+
+export function debugDefineClear(define) {
+  defines[define] = 0;
+}
+
 function normalizeRow(m, idx) {
   let len = m[idx]*m[idx] + m[idx+1]*m[idx+1] + m[idx+2]*m[idx+2];
   if (len > 0) {

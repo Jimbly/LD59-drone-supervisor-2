@@ -2,7 +2,7 @@ import assert from 'assert';
 import { AnimationSequencer, animationSequencerCreate } from 'glov/client/animation';
 import * as camera2d from 'glov/client/camera2d';
 import { MODE_DEVELOPMENT } from 'glov/client/client_config';
-import { setState } from 'glov/client/engine';
+import { debugDefineClear, debugDefineIsSet, debugDefineSet, setState } from 'glov/client/engine';
 import { ALIGN, fontStyle, fontStyleColored } from 'glov/client/font';
 import { eatAllInput, KEYS, mouseDownAnywhere } from 'glov/client/input';
 import { ClientChannelWorker, netSubs, netUserId } from 'glov/client/net';
@@ -20,7 +20,14 @@ import {
 } from 'glov/client/ui';
 import * as urlhash from 'glov/client/urlhash';
 import { DISPLAY_NAME_MAX_VISUAL_SIZE } from 'glov/common/net_common';
-import type { RoomListResponse, RoomRecord, RoomRequest, RoomResponse } from '../server/roomlist_worker';
+import type {
+  RoomJoinSpecificRequest,
+  RoomListRequest,
+  RoomListResponse,
+  RoomRecord,
+  RoomRequest,
+  RoomResponse,
+} from '../server/roomlist_worker';
 import { createAccountUI } from './account_ui';
 import {
   BUTTON_HEIGHT,
@@ -31,6 +38,7 @@ import {
   getLevelDefs,
   levelDefs,
   playInit,
+  playLeave,
   playNewGameState,
   Score,
   scoreSystem,
@@ -68,7 +76,6 @@ function myScoreToRow(row: unknown[], score: Score): void {
   // eslint-disable-next-line prefer-template
   row.push(`$${score.revenue}` + (score.revenue >= goal_revenue ? ' *' : ''), `$${score.networth}`); //, score.days);
 }
-
 
 let score_idx = 1;
 function stateScores(dt: number): void {
@@ -182,7 +189,9 @@ function preLogout(): void {
 let roomlist_loaded = false;
 let room_list: RoomRecord[] = [];
 function updateRooms(): void {
-  netSubs().getChannel('roomlist.the', false).send<RoomListResponse>('list_get', null, function (err, resp) {
+  netSubs().getChannel('roomlist.the', false).send<RoomListResponse, RoomListRequest>('list_get', {
+    spectate: Boolean(debugDefineIsSet('SPECTATE')),
+  }, function (err, resp) {
     if (err || !resp) {
       // ignore for now
       return;
@@ -199,6 +208,10 @@ function onLogin(): void {
 
 function onBadJoin(): void {
   net_msg = 'Error: room not initialized, try refreshing or navigating back to the title screen';
+}
+
+function onRoomFull(): void {
+  net_msg = 'Error: room full, try navigating back to the title screen';
 }
 
 function joinRoom(ask_permission: boolean, room_id: string, on_init: (channel: ClientChannelWorker) => void): void {
@@ -226,12 +239,19 @@ function joinRoom(ask_permission: boolean, room_id: string, on_init: (channel: C
           playInit(game_state.ld_idx, player_idx, channel);
           return;
         }
-        channel.unsubscribe();
         // not auth'd to room
-        if (!open_slot || ask_permission) {
-          // TODO: spectate?
-          return onBadJoin();
+        if (!open_slot || ask_permission || !ask_permission && debugDefineIsSet('SPECTATE')) {
+          if (debugDefineIsSet('COMPO')) {
+            channel.unsubscribe();
+            return onRoomFull();
+          } else {
+            // spectate!
+            net_msg = null;
+            playInit(game_state.ld_idx, -1, channel);
+            return;
+          }
         }
+        channel.unsubscribe();
         // Try again with permission
         ask_permission = true;
         // eslint-disable-next-line @typescript-eslint/no-use-before-define
@@ -244,6 +264,13 @@ function joinRoom(ask_permission: boolean, room_id: string, on_init: (channel: C
     netSubs().getChannel('roomlist.the', false).send<RoomResponse, string>('room_join', room_id,
       function (err, resp) {
         if (err || !resp) {
+          if (err === 'ERR_ROOM_FULL') {
+            if (debugDefineIsSet('COMPO')) {
+              return onRoomFull();
+            } else {
+              return doit();
+            }
+          }
           net_msg = err || 'empty response';
           throw err;
         }
@@ -253,13 +280,33 @@ function joinRoom(ask_permission: boolean, room_id: string, on_init: (channel: C
     );
   }
 
-  if (ask_permission) {
+  if (ask_permission && !debugDefineIsSet('SPECTATE')) {
     askPermission();
   } else {
     doit();
   }
 }
 
+export function joinRoomAtRuntime(player_idx: number): void {
+  let room_id = urlhash.get('room');
+  assert(room_id);
+
+  playLeave();
+
+  debugDefineClear('SPECTATE');
+  urlhash.set('room', room_id);
+
+  netSubs().getChannel('roomlist.the', false).send<RoomResponse, RoomJoinSpecificRequest>('room_join', {
+    room_id,
+    player_idx,
+  }, function (err, resp) {
+    if (err || !resp) {
+      net_msg = err || 'empty response';
+      throw err;
+    }
+    joinRoom(false, room_id, onBadJoin);
+  });
+}
 
 function newGame(idx: number): void {
   net_msg = 'Allocating room...';
@@ -585,6 +632,21 @@ function stateTitle(dt: number): void {
           // ignore response
         });
       }
+    } else {
+      if (!debugDefineIsSet('COMPO')) {
+        if (buttonText({
+          x: x + button_w - join_button_w,
+          y: y + join_button_h + 2,
+          z,
+          w: join_button_w,
+          h: join_button_h,
+          text: 'Spectate',
+        })) {
+          debugDefineSet('SPECTATE');
+          urlhash.set('room', entry.room_id);
+          joinRoom(false, entry.room_id, onBadJoin);
+        }
+      }
     }
 
     font.draw({
@@ -609,7 +671,9 @@ function stateTitle(dt: number): void {
     z++;
 
     if (!(ii % 2)) {
-      y = y_save;
+      if (ii !== room_list.length - 1) {
+        y = y_save;
+      }
       x += button_w + 4;
     } else {
       x = x0;

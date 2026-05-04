@@ -4,6 +4,7 @@ import {
   NetResponseCallback,
   TSMap,
 } from 'glov/common/types';
+import { identity } from 'glov/common/util';
 import { ChannelServer } from 'glov/server/channel_server';
 import { ChannelWorker } from 'glov/server/channel_worker';
 import { randAlphaNumericId } from 'glov/server/server_util';
@@ -24,12 +25,21 @@ export type RoomListResponse = {
   rooms: RoomRecord[];
 };
 
+export type RoomListRequest = {
+  spectate: boolean;
+};
+
 export type RoomRequest = {
   level_idx: number;
   num_players: number;
 };
 
 export type RoomResponse = {
+  room_id: string;
+  player_idx: number;
+};
+
+export type RoomJoinSpecificRequest = {
   room_id: string;
   player_idx: number;
 };
@@ -41,20 +51,42 @@ export type RoomRecord = {
   num_players: number;
 };
 
+type RoomRecordStorage = {
+  room_id: string;
+  level_idx: number;
+  players: (string | null)[];
+  num_players: number;
+};
+
+function toRoomRecord(a: RoomRecordStorage): RoomRecord {
+  for (let ii = 0; ii < a.players.length; ++ii) {
+    if (!a.players[ii]) {
+      return {
+        ...a,
+        players: a.players.filter(identity) as string[],
+      };
+    }
+  }
+  return a as RoomRecord;
+}
+
 RoomListWorker.registerLoggedInClientHandler('list_get', function (
   this: RoomListWorker,
   src: LoggedInClientHandlerSource,
-  data: unknown,
+  data: RoomListRequest | null,
   resp_func: NetResponseCallback<RoomListResponse>
 ): void {
   let { user_id } = src;
-  let rooms = this.getChannelData<TSMap<RoomRecord>>('private.rooms', {});
+  let rooms = this.getChannelData<TSMap<RoomRecordStorage>>('private.rooms', {});
 
   let my_rooms = [];
   let open_rooms = [];
   let open_count: Record<number, number> = {};
   let keys = Object.keys(rooms);
   keys.reverse();
+
+  let include_spectate = data && data.spectate;
+  let max_per_type = include_spectate ? 100 : 4;
 
   for (let jj = 0; jj < keys.length; ++jj) {
     let key = keys[jj];
@@ -64,19 +96,23 @@ RoomListWorker.registerLoggedInClientHandler('list_get', function (
       my_rooms.push(entry);
     } else {
       let any_good = false;
+      let num_players = 0;
       for (let ii = 0; ii < entry.players.length; ++ii) {
         let uid = entry.players[ii];
-        if (uid && !uid.startsWith('left:')) {
-          any_good = true;
+        if (uid) {
+          ++num_players;
+          if (!uid.startsWith('left:')) {
+            any_good = true;
+          }
         }
       }
       if (!any_good) {
         // clean up
         this.setChannelData(`private.rooms.${key}`, undefined);
       }
-      if (any_good && entry.players.length < entry.num_players) {
+      if (any_good && (num_players < entry.num_players || include_spectate)) {
         let c = open_count[entry.level_idx] = (open_count[entry.level_idx] || 0) + 1;
-        if (c < 4) {
+        if (c < max_per_type) {
           open_rooms.push(entry);
         }
       }
@@ -84,7 +120,7 @@ RoomListWorker.registerLoggedInClientHandler('list_get', function (
   }
 
   resp_func(null, {
-    rooms: my_rooms.concat(open_rooms),
+    rooms: my_rooms.concat(open_rooms).map(toRoomRecord),
   });
 });
 
@@ -97,7 +133,7 @@ RoomListWorker.registerLoggedInClientHandler('room_alloc', function (
   assert(data);
   assert.equal(typeof data.num_players, 'number');
   assert.equal(typeof data.level_idx, 'number');
-  let rooms = this.getChannelData<TSMap<RoomRecord>>('private.rooms', {});
+  let rooms = this.getChannelData<TSMap<RoomRecordStorage>>('private.rooms', {});
 
   let room_id;
   let len = 4;
@@ -105,7 +141,7 @@ RoomListWorker.registerLoggedInClientHandler('room_alloc', function (
     room_id = randAlphaNumericId(len);
     ++len;
   } while (rooms[room_id]);
-  let roomrec: RoomRecord = {
+  let roomrec: RoomRecordStorage = {
     room_id,
     level_idx: data.level_idx,
     players: [src.user_id],
@@ -122,14 +158,23 @@ RoomListWorker.registerLoggedInClientHandler('room_alloc', function (
 RoomListWorker.registerLoggedInClientHandler('room_join', function (
   this: RoomListWorker,
   src: LoggedInClientHandlerSource,
-  room_id: string,
+  param: string | RoomJoinSpecificRequest,
   resp_func: NetResponseCallback<RoomResponse>
 ): void {
   let { user_id } = src;
-  assert(room_id);
+  assert(param);
+  let room_id;
+  let desired_player_idx = -1;
+  if (typeof param === 'string') {
+    room_id = param;
+  } else {
+    room_id = param.room_id;
+    desired_player_idx = param.player_idx;
+  }
   assert.equal(typeof room_id, 'string');
+  assert.equal(typeof desired_player_idx, 'number');
   assert(room_id.match(/^[0-9A-Z]+$/));
-  let room = this.getChannelData<RoomRecord | null>(`private.rooms.${room_id}`, null);
+  let room = this.getChannelData<RoomRecordStorage | null>(`private.rooms.${room_id}`, null);
   assert(room);
 
   for (let player_idx = 0; player_idx < room.players.length; ++player_idx) {
@@ -144,11 +189,19 @@ RoomListWorker.registerLoggedInClientHandler('room_join', function (
     }
   }
 
-  if (room.players.length >= room.num_players) {
+  let player_idx = -1;
+  for (let ii = 0; ii < room.num_players; ++ii) {
+    if (!room.players[ii] && (player_idx === -1 || ii === desired_player_idx)) {
+      player_idx = ii;
+    }
+  }
+  if (player_idx === -1) {
     return resp_func('ERR_ROOM_FULL');
   }
-  let player_idx = room.players.length;
-  room.players.push(user_id);
+  while (room.players.length <= player_idx) {
+    room.players.push(null);
+  }
+  room.players[player_idx] = user_id;
   this.setChannelData(`private.rooms.${room_id}.players`, room.players);
   this.sendChannelMessage<UserJoinParam>(`multiplayer.${room_id}`, 'user_join', {
     player_idx,
@@ -174,7 +227,7 @@ RoomListWorker.registerLoggedInClientHandler('forget', function (
   assert(room_id);
   assert.equal(typeof room_id, 'string');
   assert(room_id.match(/^[0-9A-Z]+$/));
-  let room = this.getChannelData<RoomRecord | null>(`private.rooms.${room_id}`, null);
+  let room = this.getChannelData<RoomRecordStorage | null>(`private.rooms.${room_id}`, null);
   assert(room);
   let player_idx = room.players.indexOf(user_id);
   if (player_idx === -1) {

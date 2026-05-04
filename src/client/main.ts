@@ -75,6 +75,7 @@ import {
   button,
   buttonImage,
   ButtonRet,
+  buttonText,
   drawCircle,
   drawRect2,
   drawTooltip,
@@ -86,6 +87,7 @@ import {
   setButtonHeight,
   setFontHeight,
   setFontStyles,
+  uiButtonWidth,
   uiGetFont,
   uiSetPanelColor,
 } from 'glov/client/ui';
@@ -123,7 +125,7 @@ import {
   palette_font,
 } from './palette';
 import { SOUND_DATA } from './sound_data';
-import { getDisplayName, titleInit, titleReturn } from './title';
+import { getDisplayName, joinRoomAtRuntime, titleInit, titleReturn } from './title';
 import { wavedashReady, wavedashScoreSubmit } from './wavedash';
 
 let chat_ui: ChatUI | null = null;
@@ -1286,6 +1288,7 @@ class GameState {
   game_start_time: number;
   players: PlayerData[];
   my_player_idx: number;
+  spectate: boolean;
   tutorial_state: number;
   last_saved_my_payout = 0;
 
@@ -1323,8 +1326,12 @@ class GameState {
       player_zones.push([x, y, x + w0 - 1, y + h0 - 1]);
     }
 
-    let my_zone = this.player_zones[this.my_player_idx];
-    view_center = [(my_zone[0] + my_zone[2]) / 2, (my_zone[1] + my_zone[3]) / 2];
+    if (this.spectate) {
+      view_center = [w / 2, h / 2];
+    } else {
+      let my_zone = this.player_zones[this.my_player_idx];
+      view_center = [(my_zone[0] + my_zone[2]) / 2, (my_zone[1] + my_zone[3]) / 2];
+    }
     view_zoom = 1;
   }
 
@@ -1335,6 +1342,7 @@ class GameState {
   constructor(ld_idx: number, player_idx: number) {
     let ld = level_defs[ld_idx];
     this.my_player_idx = player_idx;
+    this.spectate = player_idx === -1;
     this.ld_idx = ld_idx;
     this.ld = ld;
     this.game_start_time = walltime.now() - this.payoutTime() / 2;
@@ -1483,10 +1491,16 @@ class GameState {
     this.sim_state = new SimState(this, this.float.bind(this));
   }
   skipRevenue(): void {
+    if (this.spectate) {
+      return;
+    }
     let expected_idx = floor((walltime.now() - this.game_start_time) / this.payoutTime());
     this.me().payout_index = expected_idx;
   }
   awardMoney(): void {
+    if (this.spectate) {
+      return;
+    }
     let me = this.me();
     let expected_idx = floor((walltime.now() - this.game_start_time) / this.payoutTime());
     let delta = expected_idx - me.payout_index;
@@ -1614,6 +1628,11 @@ class GameState {
   }
 
   buyTile(x: number, y: number, tile_type: CellType | null, rot: number): void {
+    if (this.spectate) {
+      playSound('place_error');
+      this.float('error', x, y, 'Cannot build as a spectator');
+      return;
+    }
     if (this.tutorial_state && tutorial_states[this.tutorial_state] && (
       !tutorial_states[this.tutorial_state].buy_validate ||
       !tutorial_states[this.tutorial_state].buy_validate!(x, y, tile_type, rot)
@@ -1749,7 +1768,7 @@ class GameState {
       }
     } else {
       this.resetDay();
-      this.last_saved_my_payout = this.me().payout_index;
+      this.last_saved_my_payout = this.spectate ? 0 : this.me().payout_index;
     }
     this.invalidate();
     this.saveScore();
@@ -1846,7 +1865,15 @@ function drawHUD(eff_is_ff: boolean): void {
       text: `${is_mp ? '(Team) ' : ''}Revenue: $${game_state.totalRevenue()}/day` +
         ` of $${game_state.ld.goal}/day Goal`,
     });
-    if (victory) {
+    if (game_state.spectate) {
+      font.draw({
+        style: style_floater,
+        x: 60, w: game_width - 60 * 2,
+        y: y + 4 + FONT_HEIGHT,
+        align: ALIGN.HCENTER | ALIGN.HWRAP,
+        text: 'SPECTATING OTHER PLAYERS\'S GAME',
+      });
+    } else if (victory) {
       font.draw({
         style: style_floater,
         x: 60, w: game_width - 60 * 2,
@@ -1868,62 +1895,64 @@ function drawHUD(eff_is_ff: boolean): void {
   }
 
   const TOOL_PAD = 4;
-  let x = camera2d.x0();
-  y = camera2d.y0();
-  let z = Z.UI;
-  let w = TOOL_PANEL_W;
-  x += TOOL_PAD;
-  y += TOOL_PAD;
-  w -= TOOL_PAD * 2;
-  for (let ii = 0; ii < TOOLS.length; ++ii) {
-    let tool = TOOLS[ii];
-    let cost = tool.type ? game_state.costOf(tool.type, 1) : 0;
-    let icon = tool.icon;
-    if (selected_tool === ii && tool.type) {
-      icon = cellFrame(tool.type, selected_rot);
-      icon = icon.replace('spawner', 'drone');
-    }
-    indicator_pos[`buy_${tool.type || 'sell'}`] = { x: x + BUTTON_HEIGHT / 2, y: y + BUTTON_HEIGHT / 2 };
-
-    if (button({
-      x, y, z, h: BUTTON_HEIGHT,
-      w,
-      img: autoAtlas('main', icon),
-      text: cost ? `$${cost}` : 'Sell',
-      tooltip: tool.tooltip,
-      base_name: selected_tool === ii ? 'buttonselected' : undefined,
-      // disabled: cost > game_state.money,
-      hotkey: KEYS['1'] + ii,
-    })) {
+  if (!game_state.spectate) {
+    let x = camera2d.x0();
+    y = camera2d.y0();
+    let z = Z.UI;
+    let w = TOOL_PANEL_W;
+    x += TOOL_PAD;
+    y += TOOL_PAD;
+    w -= TOOL_PAD * 2;
+    for (let ii = 0; ii < TOOLS.length; ++ii) {
+      let tool = TOOLS[ii];
+      let cost = tool.type ? game_state.costOf(tool.type, 1) : 0;
+      let icon = tool.icon;
       if (selected_tool === ii && tool.type) {
-        selected_rot = (selected_rot + 1) % (MAX_ROT[tool.type] || 1);
-      } else {
-        selected_tool = ii;
-        selected_rot = selected_tool === 0 ? 2 : 0;
+        icon = cellFrame(tool.type, selected_rot);
+        icon = icon.replace('spawner', 'drone');
       }
+      indicator_pos[`buy_${tool.type || 'sell'}`] = { x: x + BUTTON_HEIGHT / 2, y: y + BUTTON_HEIGHT / 2 };
+
+      if (button({
+        x, y, z, h: BUTTON_HEIGHT,
+        w,
+        img: autoAtlas('main', icon),
+        text: cost ? `$${cost}` : 'Sell',
+        tooltip: tool.tooltip,
+        base_name: selected_tool === ii ? 'buttonselected' : undefined,
+        // disabled: cost > game_state.money,
+        hotkey: KEYS['1'] + ii,
+      })) {
+        if (selected_tool === ii && tool.type) {
+          selected_rot = (selected_rot + 1) % (MAX_ROT[tool.type] || 1);
+        } else {
+          selected_tool = ii;
+          selected_rot = selected_tool === 0 ? 2 : 0;
+        }
+      }
+      y += BUTTON_HEIGHT + 2;
     }
-    y += BUTTON_HEIGHT + 2;
+    y += 3;
+    let net_worth = game_state.calcNetWorth(true);
+    let money = game_state.me().money;
+    let panel_h = font.draw({
+      style: style_text,
+      x, y, z, w,
+      align: ALIGN.HWRAP | ALIGN.HCENTER,
+      text: `Money:\n$${money}\n\nRevenue:\n$${game_state.calcValue()}/day` +
+        `${net_worth ? `\n\nBuild Cost:\n$${net_worth}` : ''}`,
+    });
+    const PANEL_PAD = 4;
+    panel({
+      x: x - PANEL_PAD,
+      y: y - PANEL_PAD,
+      z: z - 1, w: w + PANEL_PAD * 2,
+      h: panel_h + PANEL_PAD * 2,
+    });
   }
-  y += 3;
 
-  let net_worth = game_state.calcNetWorth(true);
-  let money = game_state.me().money;
-  let panel_h = font.draw({
-    style: style_text,
-    x, y, z, w,
-    align: ALIGN.HWRAP | ALIGN.HCENTER,
-    text: `Money:\n$${money}\n\nRevenue:\n$${game_state.calcValue()}/day` +
-      `${net_worth ? `\n\nBuild Cost:\n$${net_worth}` : ''}`,
-  });
-  const PANEL_PAD = 4;
-  panel({
-    x: x - PANEL_PAD,
-    y: y - PANEL_PAD,
-    z: z - 1, w: w + PANEL_PAD * 2,
-    h: panel_h + PANEL_PAD * 2,
-  });
 
-  x = camera2d.x1();
+  let x = camera2d.x1();
   y = camera2d.y1() - BUTTON_HEIGHT - TOOL_PAD;
   function gamebutton(icon: string, tooltip: string, hotkey: number): ButtonRet | null {
     x -= BUTTON_HEIGHT + TOOL_PAD;
@@ -1977,6 +2006,9 @@ function drawFloaters(floaters: Floater[], dt: number, z: number, size?: number)
 }
 
 function buildMode(): void {
+  if (game_state.spectate) {
+    return;
+  }
   if (!mouseOver({
     peek: true,
   })) {
@@ -2054,7 +2086,8 @@ function buildMode(): void {
   }
 
   if (hover_cell) {
-    let in_my_zone = inZone(game_state.player_zones[game_state.my_player_idx], hover_cell_x, hover_cell_y);
+    let in_my_zone = game_state.spectate ? false :
+      inZone(game_state.player_zones[game_state.my_player_idx], hover_cell_x, hover_cell_y);
     if (hover_cell.type === 'sign') {
       let text = hover_cell.text || 'Click me!';
       if (!in_my_zone) {
@@ -2698,9 +2731,9 @@ function statePlay(dt: number): void {
     dt *= 5;
     seconds_per_tick /= 5;
   }
-  sound_rect = game_state.player_zones[game_state.my_player_idx];
+  sound_rect = game_state.player_zones[game_state.my_player_idx] || [0,0,game_state.w, game_state.h];
   counter += dt;
-  if (!game_state.sim_state.drones.length && !game_state.me().max_revenue) {
+  if (!game_state.sim_state.drones.length && !game_state.spectate && !game_state.me().max_revenue) {
     counter = TICK_TIME - 1;
     if (game_state.sim_state.tick_id) {
       game_state.resetDay();
@@ -2829,7 +2862,7 @@ function statePlay(dt: number): void {
   }
 
   // draw map
-  let my_zone = game_state.player_zones[game_state.my_player_idx];
+  let my_zone = game_state.player_zones[game_state.my_player_idx] || [0, 0, 0, 0];
   let homebase_x: number[] = [];
   let homebase_y: number[] = [];
   for (let yy = 0; yy < h; ++yy) {
@@ -2888,6 +2921,16 @@ function statePlay(dt: number): void {
             align: ALIGN.HCENTER,
             text: name,
           });
+          if (!user_id && game_state.spectate) {
+            if (buttonText({
+              x: (xx + 1.5) * TILE_SIZE - uiButtonWidth() / 2,
+              y: yy * TILE_SIZE - BUTTON_HEIGHT,
+              z: zz + 0.2,
+              text: 'Join Game',
+            })) {
+              joinRoomAtRuntime(player_idx);
+            }
+          }
           if (!engine.defines.COMPO) {
             frame = 'base-notmine';
           }
@@ -3121,7 +3164,8 @@ function sendDiff(): void {
   }
 }
 
-function playLeave(): void {
+export function playLeave(): void {
+  engine.debugDefineClear('SPECTATE');
   game_room.unsubscribe();
   game_room = null!;
   chat_ui?.setChannel(null);
