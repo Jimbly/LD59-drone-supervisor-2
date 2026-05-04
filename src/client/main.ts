@@ -1573,6 +1573,9 @@ class GameState {
   }
 
   saveScore(): void {
+    if (this.spectate) {
+      return;
+    }
     let score = this.score();
     score_system.setScore(this.ld_idx, score);
     wavedashScoreSubmit(this.ld.display_name, score);
