@@ -110,7 +110,7 @@ RoomListWorker.registerLoggedInClientHandler('list_get', function (
         // clean up
         this.setChannelData(`private.rooms.${key}`, undefined);
       }
-      if (any_good && (num_players < entry.num_players || include_spectate)) {
+      if (any_good && (num_players < entry.num_players || include_spectate && entry.level_idx)) {
         let c = open_count[entry.level_idx] = (open_count[entry.level_idx] || 0) + 1;
         if (c < max_per_type) {
           open_rooms.push(entry);
