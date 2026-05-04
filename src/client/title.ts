@@ -640,6 +640,7 @@ function stateTitle(dt: number): void {
           z,
           w: join_button_w,
           h: join_button_h,
+          url: urlhash.getLinkURL(`?room=${entry.room_id}&D=SPECTATE`),
           text: 'Spectate',
         })) {
           debugDefineSet('SPECTATE');
